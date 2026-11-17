@@ -1,0 +1,2 @@
+# Preserve original bytes for source-review and vendor hashes.
+* -text
