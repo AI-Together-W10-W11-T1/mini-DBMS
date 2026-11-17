@@ -1,0 +1,11 @@
+{
+  "version": 6,
+  "configurePresets": [{
+    "name": "windows-c23",
+    "generator": "Ninja",
+    "binaryDir": "${sourceDir}/.cache/build/windows-c23",
+    "cacheVariables": {"CMAKE_BUILD_TYPE": "Debug", "BUILD_TESTING": "ON"}
+  }],
+  "buildPresets": [{"name": "windows-c23", "configurePreset": "windows-c23"}],
+  "testPresets": [{"name": "windows-c23", "configurePreset": "windows-c23", "output": {"outputOnFailure": true}}]
+}

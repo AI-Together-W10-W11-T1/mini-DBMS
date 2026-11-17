@@ -1,0 +1,77 @@
+{
+  "checked_at": "2026-11-16T04:52:13.863930+00:00",
+  "configuration_changed": false,
+  "note": "Existing global config and cache checked read-only. Session exposure and successful invocation are separate; no MCP server added.",
+  "plugins": [
+    {
+      "reference": "codex-app-tools@openai-bundled",
+      "approved": true,
+      "enabled_in_user_config": true,
+      "cache_present": true,
+      "execution_verified": false
+    },
+    {
+      "reference": "browser@openai-bundled",
+      "approved": true,
+      "enabled_in_user_config": true,
+      "cache_present": true,
+      "execution_verified": false
+    },
+    {
+      "reference": "unified-computer-use@openai-bundled",
+      "approved": true,
+      "enabled_in_user_config": true,
+      "cache_present": true,
+      "execution_verified": false
+    },
+    {
+      "reference": "visualize@openai-bundled",
+      "approved": true,
+      "enabled_in_user_config": true,
+      "cache_present": true,
+      "execution_verified": false
+    },
+    {
+      "reference": "computer-use@openai-bundled",
+      "approved": true,
+      "enabled_in_user_config": true,
+      "cache_present": true,
+      "execution_verified": false
+    },
+    {
+      "reference": "documents@openai-primary-runtime",
+      "approved": true,
+      "enabled_in_user_config": true,
+      "cache_present": true,
+      "execution_verified": false
+    },
+    {
+      "reference": "pdf@openai-primary-runtime",
+      "approved": true,
+      "enabled_in_user_config": true,
+      "cache_present": true,
+      "execution_verified": false
+    },
+    {
+      "reference": "spreadsheets@openai-primary-runtime",
+      "approved": true,
+      "enabled_in_user_config": true,
+      "cache_present": true,
+      "execution_verified": false
+    },
+    {
+      "reference": "presentations@openai-primary-runtime",
+      "approved": true,
+      "enabled_in_user_config": true,
+      "cache_present": true,
+      "execution_verified": false
+    },
+    {
+      "reference": "template-creator@openai-primary-runtime",
+      "approved": true,
+      "enabled_in_user_config": true,
+      "cache_present": true,
+      "execution_verified": false
+    }
+  ]
+}

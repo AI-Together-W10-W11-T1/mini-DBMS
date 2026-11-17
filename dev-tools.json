@@ -1,0 +1,8 @@
+{
+  "rtk": "selective",
+  "graph_refresh": "task-end",
+  "wiki_write": "task-end",
+  "graph_mode": "code-only",
+  "graph_workers": 2,
+  "graph_query_budget": 1000
+}

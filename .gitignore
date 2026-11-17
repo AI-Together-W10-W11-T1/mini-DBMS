@@ -1,0 +1,56 @@
+# Local tools, private records, and reference template snapshot
+.cache/
+.private/
+.codex-setup-backups/
+/codex-setup-github/
+
+# Python tooling environments and bytecode
+__pycache__/
+*.py[cod]
+.venv/
+
+# Test reports and locally generated demo database
+test-results/
+playwright-report/
+/demo-data/
+
+# CMake build trees and generated build metadata
+/build/
+/build-*/
+/out/
+/cmake-build-*/
+CMakeFiles/
+CMakeCache.txt
+cmake_install.cmake
+CTestTestfile.cmake
+DartConfiguration.tcl
+Testing/
+install_manifest.txt
+compile_commands.json
+build.ninja
+rules.ninja
+.ninja*
+CMakeUserPresets.json
+
+# C and Windows compilation/link/debug artifacts
+*.o
+*.obj
+*.exe
+*.dll
+*.lib
+*.a
+*.pdb
+*.ilk
+*.exp
+*.pch
+*.gch
+*.idb
+*.ipdb
+*.iobj
+*.res
+
+# Personal IDE state and local environment values
+.vs/
+.env
+.env.*
+!.env.example

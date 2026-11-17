@@ -1,0 +1,24 @@
+# mini-DBMS 작업 규칙
+
+- 작업 시작과 compact 후에는 먼저 `HANDOFF.md`를 읽고, `dev-tools.json`, `docs/wiki/index.md`, 관련 요구사항과 `.private/project-history/approvals.md`를 확인한다. 최신 사용자 지시와 앱 권한이 우선한다. 인수인계는 재개용 요약이며 완료한 Goal이나 과거 승인만으로 새 실행 범위를 추정하지 않는다.
+- DBMS 구현 언어는 C, 표준은 C23, 실행 환경은 Windows 네이티브로 확정했다. 공식 LTS를 우선하고 없는 도구는 최신 안정판을 버전 고정해 사용한다. 테스트는 cmocka와 CTest 구성 방향을 채택했다. 도구 설치·C23 실행 검증·실제 검사 명령 연결은 아직 완료하지 않았다. [요구사항](docs/requirements.md)의 Phase 1 SQL 처리기 → Phase 2 메모리 B+ 트리 → Phase 3 API·Thread Pool 순서로 진행한다. 기존 Mini React 계약·PRD·P1/P2 계획은 승계하지 않는다.
+- 모듈을 과도하게 나누지 않으며 수·이름·경계는 설계 시 정한다. [Phase별 상세 설계 원칙](docs/phase-design-policy.md)에 따라 현재 Phase의 상세 설계만 사용자와 확정한다. 후속 Phase는 연계 요구사항만 남기고 전체 상세 설계를 일괄 고정하지 않는다.
+- Phase 1 SQL 문법·동작의 원본은 `docs/sql-contract.md`, 인수 검증 명세는 `docs/testing/phase1-sql-acceptance.md`다. 원래 과제의 INSERT/SELECT 최소 범위에 UPDATE/DELETE·JOIN·집계·정렬/페이지·VALUES·UNION을 추가 채택했다. 스키마 제공은 외부 JSON 계약 `docs/schema-contract.md`와 `docs/testing/phase1-schema-acceptance.md`를 따른다. 저장·변경·명시적 스키마 변환은 `docs/storage-contract.md`와 `docs/testing/phase1-storage-acceptance.md`를 따른다. CLI 명령·입출력·종료 코드는 `docs/cli-contract.md`, 인수 검증은 `docs/testing/phase1-cli-acceptance.md`를 따른다. 파일 또는 명시적 stdin·기본 표/선택 JSONL·필수 스키마/데이터 경로를 선택했으며 다시 미정으로 취급하지 않는다. 계약 문서화와 실제 C 구현·기능 검증은 구분한다.
+- 도구와 검토 기준이 정해지면 사용자에게 준비 상태를 보고한다. Plan 모드와 Goal은 사용자가 이후 직접 시작하며 미리 생성하지 않는다.
+- 요구사항·계약 → Given/When/Then → 실제 동작 Red → 최소 Green → Refactor → 회귀 검사를 따른다. 환경/import 실패는 기능 Red가 아니다.
+- Main은 Master를 맡고 Planner·Implementer·Reviewer_QA·Knowledge Manager를 서브에이전트로 배정한다. 사용자와 소통하는 창구는 Master뿐이며 서브에이전트 간 직접 통신·재위임은 금지한다. Master가 필요한 계약·산출물·지적 사항을 전달한다. 구체 계약은 `docs/workflow/agent-harness.md`를 따른다.
+- 같은 작업의 계획·사용자 선택·구현·검증은 의존 순서를 지킨다. 독립적인 작업(run)은 읽기/쓰기 범위와 승인 상태를 확인한 뒤 병렬 실행한다. 서브에이전트 요청 상한은 4명이지만 실제 실행은 환경의 가용 슬롯을 넘지 않는다. 같은 파일의 수정과 검토·검증을 겹치지 않는다.
+- 구현 전에 Master가 확정 사항·이번 선택 사항·보류 사항과 대안·장단점·권고안을 사용자에게 제시하고 선택 출처를 기록한다. 승인된 범위는 반복 승인 없이 수행한다. 새 선택·범위 변경이 필요하면 해당 작업을 멈추고 상의하되 영향 없는 승인된 작업은 계속할 수 있다. 최종 결과도 사용자 확인 뒤 완료 처리한다.
+- 같은 작업의 품질 반려를 지적 ID와 관계없이 누적한다. 한 번의 검토에서 여러 문제를 묶어 반려 1회로 계산한다. 두 번째 반려 뒤 Master가 원인을 재분석하고, 세 번째 반려 시 자동 재지시를 멈춰 시도·문제·원인 추정·해결 선택지를 사용자에게 보고한다. 환경 장애·요구사항 변경은 품질 반려와 구분한다.
+- 가장 작은 설명 가능한 구현을 우선한다. 코드의 핵심 불변식·실패 조건·결정 이유를 한국어로 설명한다.
+- 긴 Git·테스트 출력에 `python scripts/dev_tools.py rtk -- <명령>`을 선택적으로 사용하고 진단 부족 시 원본을 확인한다.
+- 단순 검색은 rg, 구조·호출·영향 범위는 Graphify와 원문 대조를 사용한다. 정적 그래프를 실행 증거로 보고하지 않는다.
+- 소스 변경 작업 종료 시 `python scripts/dev_tools.py finish`를 실행한다. 도구 미설치나 실패를 숨기지 않는다.
+- 검증한 새 결정·실패 사례만 Wiki에 출처와 함께 기록하고 실제 원문 대조 후 `wiki-review --reviewed`를 등록한다.
+- TypeScript·Node·npm 프로젝트 설정과 새 MCP 서버는 도입하지 않는다. Playwright Test와 Node worker 벤치마크는 Node 제외 조건으로 보류한다. 기존 전역 앱 연결을 삭제하지 않는다.
+- 승인한 플러그인은 현재 세션에 실제 제공되는 기능만 필요할 때 사용한다. 설치·캐시·설정·실행 검증을 구분한다.
+- Context7·Superpowers·Ponytail·벡터 RAG·Modular RAG·fine-tuning은 현재 보류한다. 구체적인 DBMS 개발 병목이 확인될 때 재검토한다.
+- 추가 유료 API·구독·자동 과금을 도입하지 않는다. GitHub 게시·결제·개인정보 외부 전송은 구체 범위를 별도로 확인한다. CIM 조회는 매번 별도 허락을 받는다.
+- Git 소유권 예외는 명령별 `git -c safe.directory=<프로젝트 절대경로>`만 사용한다. 전역 Git 설정을 변경하지 않는다.
+- 개인 기록 작성 전 `git check-ignore`와 `git ls-files`로 제외·미추적 상태를 확인한다. 기록에는 날짜/요일(Asia/Seoul), 목적·결정·검증·미완료·다음 행동·출처를 남긴다. 개인 대화 본문·과거 승인·다른 프로젝트 Goal을 복제하지 않는다.
+- 완료 보고에 변경 이유·실제 검사·미실행·한계를 명시한다. 모의 단위 테스트를 실제 서브에이전트 실행이나 DBMS 기능 검사로 보고하지 않는다.

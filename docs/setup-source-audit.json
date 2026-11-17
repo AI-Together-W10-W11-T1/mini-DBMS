@@ -1,0 +1,21 @@
+{
+  "source": "codex-setup-github",
+  "manifest_mismatches": [
+    {
+      "path": "project/docs/workflow/agent-harness.md",
+      "expected": "9d78baf2f37639520b23f03da318b2ea4bf123168cd4d1c80c3c4ac2765b6791",
+      "actual": "8a14b4e5f9a1cd6c343f8b7cab4a9972d0d57f5206444063af05bd4c37cf0ec6"
+    }
+  ],
+  "approach": "No bulk restore. Copy hash-matching scripts, adapt locally, rewrite workflow documents; original bundle unchanged.",
+  "copied": [
+    "dev-tools.json",
+    "scripts/dev_tools.py",
+    "scripts/eval_dev_tools.py",
+    "scripts/agent_harness.py",
+    "scripts/test_agent_harness.py",
+    "scripts/test_dev_tools.py",
+    "tools/agent-harness/roles.json",
+    "tools/graphify-requirements.txt"
+  ]
+}

@@ -1,0 +1,73 @@
+{
+  "schema_version": 1,
+  "target": "Windows x86_64 UCRT",
+  "artifacts": [
+    {
+      "id": "llvm-mingw",
+      "version": "20261104",
+      "archive": "llvm-mingw-20261104-ucrt-x86_64.zip",
+      "url": "https://github.com/mstorsjo/llvm-mingw/releases/download/20261104/llvm-mingw-20261104-ucrt-x86_64.zip",
+      "sha256": "552191b5754c49a5a20723276a6fc56541ea1922c4c50b7b669022333fc1b40f",
+      "hash_source": "https://api.github.com/repos/mstorsjo/llvm-mingw/releases/tags/20261104",
+      "extract_to": ".cache/tooling/llvm-mingw/20261104"
+    },
+    {
+      "id": "cmake",
+      "version": "v4.5.0",
+      "archive": "cmake-4.5.0-windows-x86_64.zip",
+      "url": "https://github.com/Kitware/CMake/releases/download/v4.5.0/cmake-4.5.0-windows-x86_64.zip",
+      "sha256": "301b1728317ccd84e984b02e366a8293735bc5ac618757d3d8f58b578f062411",
+      "hash_source": "https://api.github.com/repos/Kitware/CMake/releases/tags/v4.5.0",
+      "extract_to": ".cache/tooling/cmake/4.5.0"
+    },
+    {
+      "id": "ninja",
+      "version": "v1.13.2",
+      "archive": "ninja-win.zip",
+      "url": "https://github.com/ninja-build/ninja/releases/download/v1.13.2/ninja-win.zip",
+      "sha256": "07fc8261b42b20e71d1720b39068c2e14ffcee6396b76fb7a795fb460b78dc65",
+      "hash_source": "https://api.github.com/repos/ninja-build/ninja/releases/tags/v1.13.2",
+      "extract_to": ".cache/tooling/ninja/1.13.2"
+    },
+    {
+      "id": "cmocka",
+      "version": "2.0.1",
+      "archive": "cmocka-2.0.1.tar.xz",
+      "url": "https://cmocka.org/files/2.0/cmocka-2.0.1.tar.xz",
+      "sha256": "3f3533382ba29ab3abf5c4f4b27b79d165f0df51ea587de749b11b68b4019180",
+      "hash_source": "Locally calculated from official HTTPS archive; upstream detached signature downloaded but NOT cryptographically verified; no upstream SHA256 found",
+      "extract_to": ".cache/tooling/cmocka/2.0.1"
+    },
+    {
+      "id": "yyjson",
+      "version": "0.13.0",
+      "archive": "yyjson-0.13.0.tar.gz",
+      "url": "https://codeload.github.com/ibireme/yyjson/tar.gz/refs/tags/0.13.0",
+      "sha256": "34e0f62a2bc11ab20d601e8ca1cc2b2079503aa45119a19133d89d19b94a0fae",
+      "hash_source": "Locally calculated from official GitHub tag archive; no upstream SHA256 asset published",
+      "extract_to": ".cache/tooling/yyjson/0.13.0"
+    }
+  ],
+  "paths": {
+    "clang": ".cache/tooling/llvm-mingw/20261104/llvm-mingw-20261104-ucrt-x86_64/bin/clang.exe",
+    "lldb": ".cache/tooling/llvm-mingw/20261104/llvm-mingw-20261104-ucrt-x86_64/bin/lldb.exe",
+    "cmake": ".cache/tooling/cmake/4.5.0/cmake-4.5.0-windows-x86_64/bin/cmake.exe",
+    "ctest": ".cache/tooling/cmake/4.5.0/cmake-4.5.0-windows-x86_64/bin/ctest.exe",
+    "ninja": ".cache/tooling/ninja/1.13.2/ninja.exe",
+    "cmocka_source": ".cache/tooling/cmocka/2.0.1/cmocka-2.0.1",
+    "yyjson_source": ".cache/tooling/yyjson/0.13.0/yyjson-0.13.0"
+  },
+  "licenses": {
+    "llvm-mingw": ".cache/tooling/llvm-mingw/20261104/llvm-mingw-20261104-ucrt-x86_64/LICENSE.TXT",
+    "cmake": ".cache/tooling/cmake/4.5.0/cmake-4.5.0-windows-x86_64/doc/cmake/LICENSE.rst",
+    "ninja": "https://github.com/ninja-build/ninja/blob/v1.13.2/COPYING",
+    "cmocka": ".cache/tooling/cmocka/2.0.1/cmocka-2.0.1/LICENSE",
+    "yyjson": "vendor/yyjson/LICENSE"
+  },
+  "vendor_files": {
+    "vendor/yyjson/LICENSE": "45e384d3d52c73cba3a64d6e6c25d47cd738cd8a55c30629e3201046eda62947",
+    "vendor/yyjson/yyjson.c": "d2d58ef0a3b2267862dc363832c4f3185fd375aea933d5d3419d1a940d6ece2e",
+    "vendor/yyjson/yyjson.h": "ef803cda5c06b8962face6dfa39c3284b3bcf3e73f4d7317664690cc779679ca"
+  },
+  "yyjson_tag_object": "138b4a7e757426bbbaa11ca37f257ce8d8489007"
+}
