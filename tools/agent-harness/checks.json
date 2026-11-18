@@ -2,22 +2,73 @@
   "version": 1,
   "require_metrics": false,
   "commands": {
-    "red": ["{python}", "scripts/c_checks.py", "red"],
-    "green": ["{python}", "scripts/c_checks.py", "green"],
-    "regression": ["{python}", "scripts/c_checks.py", "regression"],
-    "build": ["{python}", "scripts/c_checks.py", "build"]
+    "red": [
+      "{python}",
+      "scripts/c_checks.py",
+      "red"
+    ],
+    "green": [
+      "{python}",
+      "scripts/c_checks.py",
+      "green"
+    ],
+    "regression": [
+      "{python}",
+      "scripts/c_checks.py",
+      "regression"
+    ],
+    "build": [
+      "{python}",
+      "scripts/c_checks.py",
+      "build"
+    ],
+    "targeted": [
+      "{python}",
+      "scripts/c_checks.py",
+      "targeted"
+    ]
   },
   "timeout_seconds": 600,
   "language": "C",
   "c_standard": "C23",
   "target_environment": "Windows",
-  "compiler": {"distribution": "LLVM-MinGW UCRT", "distribution_version": "20261104", "name": "Clang", "version": "23.1.5"},
-  "debugger": {"name": "LLDB", "version": "23.1.5", "availability_and_execution_verified": true, "verification_scope": "Windows x64 debug smoke: breakpoint, next, local variable, backtrace, continue; not exhaustive debugger validation", "evidence": ".cache/bootstrap/lldb-smoke.log"},
-  "build_tool": {"configuration": "CMake", "version": "4.5.0", "executor": "Ninja", "executor_version": "1.13.2"},
-  "test_tool": {"framework": "cmocka", "version": "2.0.1", "license": "Apache-2.0", "runner": "CTest", "runner_version": "4.5.0"},
+  "compiler": {
+    "distribution": "LLVM-MinGW UCRT",
+    "distribution_version": "20261104",
+    "name": "Clang",
+    "version": "23.1.5"
+  },
+  "debugger": {
+    "name": "LLDB",
+    "version": "23.1.5",
+    "availability_and_execution_verified": true,
+    "verification_scope": "Windows x64 debug smoke: breakpoint, next, local variable, backtrace, continue; not exhaustive debugger validation",
+    "evidence": ".cache/bootstrap/lldb-smoke.log"
+  },
+  "build_tool": {
+    "configuration": "CMake",
+    "version": "4.5.0",
+    "executor": "Ninja",
+    "executor_version": "1.13.2"
+  },
+  "test_tool": {
+    "framework": "cmocka",
+    "version": "2.0.1",
+    "license": "Apache-2.0",
+    "runner": "CTest",
+    "runner_version": "4.5.0"
+  },
   "release_policy": "prefer-latest-official-LTS; otherwise pinned-latest-stable; no silent upgrades",
   "toolchain_status": "installed; execution-verified by scoped native probes",
-  "toolchain_evidence": ["tools/c-toolchain-lock.json", ".cache/bootstrap/install-receipt.json", ".cache/bootstrap/toolchain-reviewer/qa-receipt.json"],
+  "toolchain_evidence": [
+    "tools/c-toolchain-lock.json",
+    ".cache/bootstrap/install-receipt.json",
+    ".cache/bootstrap/toolchain-reviewer/qa-receipt.json"
+  ],
   "design_policy": "minimal-modules; phase-by-phase detailed design; user approval before implementation",
-  "note": "선택 버전을 유지하고 작업공간에 도구를 설치했다. C23 특정 기능 probe와 Windows 실행, LLDB smoke, cmocka/CTest 성공 및 의도된 실패 전파를 확인했다. 이는 C23 전체 적합성이나 DBMS 기능 통과를 의미하지 않는다. cmocka와 yyjson의 SHA256은 공식 HTTPS 원본에서 로컬 계산했으며 cmocka 서명은 암호학적으로 검증하지 않았다. 출처와 한계는 tools/c-toolchain-lock.json을 유지한다. build/red/green/regression은 실제 C 구성·컴파일 및 해당 단계 CTest 어댑터에 연결했다. 현재 DBMS 엔진은 스텁이며 등록된 M1 검사 16개의 정식 하네스 Red/Green/회귀 결과는 별도 기록한다."
+  "note": "선택 버전을 유지하고 작업공간에 도구를 설치했다. C23 특정 기능 probe와 Windows 실행, LLDB smoke, cmocka/CTest 성공 및 의도된 실패 전파를 확인했다. 이는 C23 전체 적합성이나 DBMS 기능 통과를 의미하지 않는다. cmocka와 yyjson의 SHA256은 공식 HTTPS 원본에서 로컬 계산했으며 cmocka 서명은 암호학적으로 검증하지 않았다. 출처와 한계는 tools/c-toolchain-lock.json을 유지한다. build/red/green/regression은 실제 C 구성·컴파일 및 해당 단계 CTest 어댑터에 연결했다. 현재 DBMS 엔진은 스텁이며 등록된 M1 검사 16개의 정식 하네스 Red/Green/회귀 결과는 별도 기록한다.",
+  "workflow_policies": {
+    "default": "strict-legacy",
+    "slim-v1": "Explicit contract risk-based Red; targeted checks are interim; integrated full regression is final evidence."
+  }
 }

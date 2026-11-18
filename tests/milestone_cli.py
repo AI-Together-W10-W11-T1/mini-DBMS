@@ -127,7 +127,11 @@ def stop_on_error(f):
 
 def invalid_id(f):
     f.init()
-    for sql, code in [("INSERT INTO users(name) VALUES('x');", "ID_REQUIRED"),
+    automatic = Fixture(f.exe, f.work / "automatic-id", f.fault_exe)
+    automatic.init()
+    automatic.sql("INSERT INTO users(name) VALUES('x');")
+    check(persisted_ids(automatic) == [1], "Phase2 omitted ID generated")
+    for sql, code in [
                       ("INSERT INTO users(id) VALUES(0);", "INVALID_ID"),
                       ("INSERT INTO users(id) VALUES(NULL);", "INVALID_ID"),
                       ("INSERT INTO users(id) VALUES(-1);", "INVALID_ID")]:

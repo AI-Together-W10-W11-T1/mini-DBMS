@@ -27,6 +27,7 @@ void md_catalog_free(MdTable *t, size_t n) {
                 free(t[i].fields[j].name);
         free(t[i].fields);
         md_values_free(t[i].rows, t[i].row_count * t[i].count);
+        md_bt_destroy(&t[i].index);
     }
     free(t);
 }
@@ -258,4 +259,191 @@ bool md_catalog_load(const char *dir, MdDb *db, MdDiagnostic *d) {
     if (ok)
         qsort(db->tables, db->count, sizeof *db->tables, table_cmp);
     return ok;
+}
+
+/* plan은 구조 검증을 먼저 끝내고, 이름과 대응 의미는 원본/대상 카탈로그로 검증한다. */
+static bool plan_keys(yyjson_val *object, const char *const *keys, size_t required, size_t total) {
+    if (!yyjson_is_obj(object))
+        return false;
+    bool seen[3] = {false};
+    size_t i, count;
+    yyjson_val *key, *value;
+    yyjson_obj_foreach(object, i, count, key, value) {
+        (void)value;
+        size_t k;
+        for (k = 0; k < total; k++)
+            if (yyjson_get_len(key) == strlen(keys[k]) &&
+                !memcmp(yyjson_get_str(key), keys[k], strlen(keys[k])))
+                break;
+        if (k == total || seen[k])
+            return false;
+        seen[k] = true;
+    }
+    for (size_t i = 0; i < required; i++)
+        if (!seen[i])
+            return false;
+    return true;
+}
+bool md_plan_load(const char *path, MdMigration *m, MdDiagnostic *d) {
+    if (!path)
+        return true;
+    unsigned char *raw = NULL;
+    size_t size = 0, bom = 0;
+    if (!md_read_file(path, &raw, &size, d)) {
+        strcpy(d->source, "plan");
+        return false;
+    }
+    if (size >= 3 && !memcmp(raw, "\xef\xbb\xbf", 3))
+        bom = 3;
+    yyjson_read_err error;
+    m->document = md_fault("migrate_plan_alloc") ? NULL :
+        yyjson_read_opts((char *)raw + bom, size - bom, 0, NULL, &error);
+    free(raw);
+    if (!m->document) {
+        bool allocation = md_fault("migrate_plan_alloc") || error.code == YYJSON_READ_ERROR_MEMORY_ALLOCATION;
+        md_diag(d, allocation ? "RESOURCE_ERROR" : "ARGUMENT_ERROR",
+                allocation ? "prepare" : "arguments", "plan", path, "Cannot parse strict migration plan JSON");
+        if (!allocation) {
+            d->has_offset = true;
+            d->byte_offset = error.pos + bom;
+        }
+        return false;
+    }
+    const char *rootkeys[] = {"version", "tables"}, *tablekeys[] = {"name", "map", "drop"},
+               *mapkeys[] = {"target", "source"};
+    yyjson_val *root = yyjson_doc_get_root(m->document), *version = yyjson_obj_get(root, "version"),
+               *tables = yyjson_obj_get(root, "tables");
+    if (!plan_keys(root, rootkeys, 2, 2) || !yyjson_is_uint(version) ||
+        yyjson_get_uint(version) != 1 || !yyjson_is_arr(tables))
+        goto invalid;
+    size_t i, count;
+    yyjson_val *table;
+    yyjson_arr_foreach(tables, i, count, table) {
+        yyjson_val *map = yyjson_obj_get(table, "map"), *drop = yyjson_obj_get(table, "drop");
+        if (!plan_keys(table, tablekeys, 1, 3) || !yyjson_is_str(yyjson_obj_get(table, "name")) ||
+            (map && !yyjson_is_arr(map)) || (drop && !yyjson_is_arr(drop)))
+            goto invalid;
+        for (size_t j = 0; j < yyjson_arr_size(map); j++) {
+            yyjson_val *entry = yyjson_arr_get(map, j);
+            if (!plan_keys(entry, mapkeys, 2, 2) || !yyjson_is_str(yyjson_obj_get(entry, "source")) ||
+                !yyjson_is_str(yyjson_obj_get(entry, "target")))
+                goto invalid;
+        }
+        for (size_t j = 0; j < yyjson_arr_size(drop); j++)
+            if (!yyjson_is_str(yyjson_arr_get(drop, j)))
+                goto invalid;
+    }
+    return true;
+invalid:
+    md_diag(d, "ARGUMENT_ERROR", "arguments", "plan", path,
+            "Invalid plan fields, types, version or decoded duplicate keys");
+    strcpy(d->field_path, "$");
+    return false;
+}
+void md_migration_free(MdMigration *m) {
+    if (m->columns)
+        for (size_t i = 0; i < m->count; i++)
+            free(m->columns[i]);
+    free(m->columns);
+    free(m->copied);
+    if (m->document)
+        yyjson_doc_free(m->document);
+    memset(m, 0, sizeof *m);
+}
+static size_t field_index(const MdTable *table, const char *name) {
+    for (size_t i = 0; i < table->count; i++)
+        if (md_equal(table->fields[i].name, name))
+            return i;
+    return SIZE_MAX;
+}
+bool md_mapping_prepare(MdMigration *m, const MdDb *source, const MdDb *target, MdDiagnostic *d) {
+    yyjson_val *tables = m->document ? yyjson_obj_get(yyjson_doc_get_root(m->document), "tables") : NULL;
+    if (source->count != target->count)
+        goto semantic;
+    /* source와 target은 같은 접은 이름 정렬을 사용한다. */
+    for (size_t i = 0; i < target->count; i++)
+        if (!md_equal(source->tables[i].name, target->tables[i].name))
+            goto semantic;
+    for (size_t i = 0; i < yyjson_arr_size(tables); i++) {
+        yyjson_val *entry = yyjson_arr_get(tables, i), *name = yyjson_obj_get(entry, "name");
+        if (!text_name(name))
+            goto semantic;
+        bool found = false;
+        for (size_t t = 0; t < target->count; t++)
+            found |= md_equal(target->tables[t].name, yyjson_get_str(name));
+        if (!found)
+            goto semantic;
+        for (size_t j = 0; j < i; j++)
+            if (md_equal(yyjson_get_str(name), yyjson_get_str(yyjson_obj_get(yyjson_arr_get(tables, j), "name"))))
+                goto semantic;
+    }
+    m->count = target->count;
+    m->columns = calloc(m->count, sizeof *m->columns);
+    m->copied = calloc(m->count, sizeof *m->copied);
+    if (!m->columns || !m->copied || md_fault("migrate_mapping_alloc"))
+        goto resource;
+    for (size_t t = 0; t < target->count; t++) {
+        const MdTable *old = &source->tables[t], *next = &target->tables[t];
+        yyjson_val *plan = NULL;
+        for (size_t i = 0; i < yyjson_arr_size(tables); i++) {
+            yyjson_val *entry = yyjson_arr_get(tables, i);
+            if (md_equal(next->name, yyjson_get_str(yyjson_obj_get(entry, "name"))))
+                plan = entry;
+        }
+        yyjson_val *map = yyjson_obj_get(plan, "map"), *drop = yyjson_obj_get(plan, "drop");
+        if (next->count > SIZE_MAX / sizeof **m->columns)
+            goto resource;
+        m->columns[t] = malloc(next->count * sizeof **m->columns);
+        if (!m->columns[t])
+            goto resource;
+        for (size_t c = 0; c < next->count; c++)
+            m->columns[t][c] = field_index(old, next->fields[c].name);
+        for (size_t i = 0; i < yyjson_arr_size(map); i++) {
+            yyjson_val *entry = yyjson_arr_get(map, i), *to = yyjson_obj_get(entry, "target"),
+                       *from = yyjson_obj_get(entry, "source");
+            if (!text_name(to) || !text_name(from))
+                goto semantic;
+            size_t c = field_index(next, yyjson_get_str(to)), r = field_index(old, yyjson_get_str(from));
+            if (c == SIZE_MAX || r == SIZE_MAX)
+                goto semantic;
+            for (size_t j = 0; j < i; j++)
+                if (md_equal(yyjson_get_str(to), yyjson_get_str(yyjson_obj_get(yyjson_arr_get(map, j), "target"))))
+                    goto semantic;
+            m->columns[t][c] = r;
+        }
+        if (m->columns[t][next->id] != old->id)
+            goto semantic;
+        for (size_t c = 0; c < next->count; c++)
+            for (size_t j = 0; j < c; j++)
+                if (m->columns[t][c] != SIZE_MAX && m->columns[t][c] == m->columns[t][j])
+                    goto semantic;
+        for (size_t i = 0; i < yyjson_arr_size(drop); i++) {
+            yyjson_val *name = yyjson_arr_get(drop, i);
+            if (!text_name(name) || field_index(old, yyjson_get_str(name)) == SIZE_MAX)
+                goto semantic;
+            for (size_t j = 0; j < i; j++)
+                if (md_equal(yyjson_get_str(name), yyjson_get_str(yyjson_arr_get(drop, j))))
+                    goto semantic;
+        }
+        for (size_t r = 0; r < old->count; r++) {
+            bool used = false, dropped = false;
+            for (size_t c = 0; c < next->count; c++)
+                used |= m->columns[t][c] == r;
+            for (size_t i = 0; i < yyjson_arr_size(drop); i++)
+                dropped |= md_equal(old->fields[r].name, yyjson_get_str(yyjson_arr_get(drop, i)));
+            if (used == dropped)
+                goto semantic;
+        }
+        m->copied[t] = md_schema_same(old, next);
+        for (size_t c = 0; c < next->count; c++)
+            m->copied[t] &= m->columns[t][c] == c;
+    }
+    return true;
+semantic:
+    md_diag(d, "MIGRATION_ERROR", "prepare", "plan", NULL,
+            "Invalid table set, identifier, one-to-one mapping, drop or ID preservation");
+    return false;
+resource:
+    md_diag(d, "RESOURCE_ERROR", "prepare", "plan", NULL, "Mapping allocation failed");
+    return false;
 }

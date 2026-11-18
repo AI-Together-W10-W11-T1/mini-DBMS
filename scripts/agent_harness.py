@@ -16,6 +16,45 @@ class HarnessError(ValueError):
     pass
 
 
+HIGH_RISKS = {'bugfix', 'storage_atomicity', 'data_structure_invariant', 'overflow',
+              'concurrency', 'ownership', 'harness_evidence'}
+
+
+def validate_slim_metadata(report, run_id, actor_id, source_digest, tests, full=False, phase=None):
+    metadata = report.get('config', {}).get('metadata', {})
+    expected = dict(harnessRunId=run_id, workflowPolicy='slim-v1', actorId=actor_id,
+                    sourceDigest=source_digest)
+    if any(metadata.get(key) != value for key, value in expected.items()):
+        raise HarnessError('slim report identity mismatch')
+    if phase is not None and metadata.get('nodeId') != phase:
+        raise HarnessError('slim report phase mismatch')
+    requested = metadata.get('requestedTests')
+    if (metadata.get('testScope') not in {'full', 'selected'} or full and metadata['testScope'] != 'full'
+            or not isinstance(requested, list) or not requested or len(set(requested)) != len(requested)
+            or not set(tests).issubset(requested)):
+        raise HarnessError('slim report test scope mismatch')
+    titles = []
+    def visit(suite):
+        for spec in suite.get('specs', []):
+            titles.append(spec.get('title'))
+            if not spec.get('tests') or any(test.get('expectedStatus') != 'passed' or not test.get('results')
+                    or any(result.get('status') not in {'passed', 'failed'} for result in test['results'])
+                    for test in spec['tests']):
+                raise HarnessError('slim report has incomplete or unknown execution')
+        for child in suite.get('suites', []):
+            visit(child)
+    for suite in report.get('suites', []):
+        visit(suite)
+    if set(titles) != set(requested) or len(titles) != len(set(titles)):
+        raise HarnessError('slim requested tests disagree with executed tests')
+    build = metadata.get('build', {})
+    if (build.get('passed') is not True or type(build.get('configure_exit_code')) is not int or build['configure_exit_code'] != 0
+            or type(build.get('compile_exit_code')) is not int or build['compile_exit_code'] != 0 or not isinstance(build.get('directory'), str)
+            or not Path(build['directory']).is_absolute() or type(build.get('cache_reused')) is not bool):
+        raise HarnessError('slim report requires actual successful configure/build metadata')
+    return requested
+
+
 def safe_path(root, value):
     root = Path(root).resolve()
     path = (root / value).resolve()
@@ -177,6 +216,13 @@ class Harness:
         # 이전 v2 원장은 구현 전용이다. 종류는 생성 시에만 지정한다.
         return self.state.get('kind', 'implementation')
 
+    @property
+    def slim(self):
+        return self.state.get('workflow_policy') == 'slim-v1'
+
+    def final_checks(self):
+        return ('docs',) if self.kind == 'design' else ('regression',) if self.slim else ('build', 'regression')
+
     def outputs_digest(self):
         return digest({p: file_hash(safe_path(self.root, p)) if safe_path(self.root, p).is_file() else None
                        for p in self.outputs()})
@@ -186,7 +232,7 @@ class Harness:
             raise HarnessError('expected phase ' + phase)
 
     def record_path(self):
-        return 'docs/testing/records/' + self.state['requirement'] + '.md'
+        return self.state.get('result_path', 'docs/testing/records/' + self.state['requirement'] + '.md')
 
     def outputs(self):
         return self.state.get('knowledge_paths', [self.record_path(), 'docs/wiki/index.md', 'docs/wiki/sources.json'])
@@ -293,18 +339,25 @@ class Harness:
                           decision_protocol='Return NEEDS_DECISION for new choices or scope changes; never choose for user',
                           return_contract=['run_id', 'node_id', 'role', 'actor_id', 'attempt', 'input_digest',
                                            'source_digest', 'status', 'findings', 'evidence_refs', 'requested_decisions'])
+            if self.slim:
+                packet.update(workflow_policy='slim-v1', red_policy=self.state['red_policy'])
             tasks = {'planner': 'Return plan with alternatives, test_cases, proposed_changes and unresolved user choices. Do not implement.',
                      'implementer': 'Implement approved files. Produce actual Red/Green/build/regression receipts; report only to Master.',
                      'reviewer_qa': 'Read-only code review plus fresh build then regression. Return separate review and qa fields. Do not edit source.',
                      'knowledge_manager': 'Write only approved documentation, verify sources and run finish. Return private-history summary to Master; never access .private.'}
             packet['task'] = tasks[node]
+            if self.slim and node in {'implementer', 'reviewer_qa'}:
+                packet['task'] = ('Implement approved files under red_policy; targeted checks are interim. '
+                                  'Produce fresh integrated configure/build/full regression evidence; report only to Master.'
+                                  if node == 'implementer' else
+                                  'Read-only review plus fresh integrated configure/build/full regression. Return separate review and qa fields.')
             if self.kind == 'design':
                 packet['role_profile'] = dict(packet['role_profile'], instructions=profiles['roles'][node].get('design_instructions', tasks[node]))
                 packet['task'] = {'planner': 'Return current Phase design alternatives, document checks and exact documentation outputs. Do not implement.',
                                   'knowledge_manager': 'Write approved design documents, compare original references and run finish. Report only to Master.',
                                   'reviewer_qa': 'Read-only design review and fresh docs verification. Return separate review and qa fields.'}[node]
             if node == 'reviewer_qa':
-                packet['check_commands'] = ['python scripts/agent_harness.py --run ' + self.run_id + ' run-check ' + n for n in (('docs',) if self.kind == 'design' else ('build', 'regression'))]
+                packet['check_commands'] = ['python scripts/agent_harness.py --run ' + self.run_id + ' run-check ' + n for n in self.final_checks()]
             packet['input_digest'] = packet_digest(packet)
             path = self.directory / 'packets' / (node + '-' + str(attempt) + '.json')
             write_json(path, packet)
@@ -373,7 +426,7 @@ class Harness:
         if node == 'reviewer_qa' and status == 'APPROVED':
             if result.get('review', {}).get('status') != 'APPROVED' or result.get('qa', {}).get('status') != 'PASS':
                 raise HarnessError('separate approved review and passed QA evidence are required')
-            for name in (('docs',) if self.kind == 'design' else ('build', 'regression')):
+            for name in self.final_checks():
                 self.verify_check(name, current=True, phase='VERIFY', actor_id=packet['actor_id'])
         if node == 'knowledge_manager' and status == 'PASS':
             self.verify_check('finish', current=True, phase='KNOWLEDGE', actor_id=packet['actor_id'])
@@ -401,9 +454,32 @@ class Harness:
         self.save('result_accepted', node=node, actor_id=packet['actor_id'], status=status)
         return self.state
 
-    def approve(self, approval_ref, write_paths=None, required_tests=None, decisions=None, knowledge_paths=None):
+    def approve(self, approval_ref, write_paths=None, required_tests=None, decisions=None, knowledge_paths=None,
+                workflow_policy=None, red_policy=None, result_path=None):
         self.require_phase('CONTRACT')
         self.check_inputs()
+        if workflow_policy not in {None, 'slim-v1'}:
+            raise HarnessError('unknown workflow policy')
+        if workflow_policy == 'slim-v1':
+            if (self.kind != 'implementation' or not isinstance(red_policy, dict)
+                    or type(red_policy.get('required')) is not bool or not isinstance(red_policy.get('reason'), str)
+                    or not red_policy['reason'].strip() or not isinstance(red_policy.get('risk_flags'), list)
+                    or not all(isinstance(flag, str) for flag in red_policy['risk_flags'])
+                    or not set(red_policy['risk_flags']).issubset(HIGH_RISKS)
+                    or HIGH_RISKS.intersection(red_policy['risk_flags']) and not red_policy['required']):
+                raise HarnessError('slim policy requires explicit reason and Red for high risk')
+            if (not isinstance(required_tests, list) or not required_tests
+                    or not all(isinstance(name, str) and name.strip() for name in required_tests)
+                    or len(set(required_tests)) != len(required_tests)):
+                raise HarnessError('slim policy requires exact unique test names')
+        elif red_policy is not None:
+            raise HarnessError('red policy requires slim-v1')
+        if result_path is not None:
+            result_path = knowledge_output_path(self.root, result_path)
+            if (workflow_policy != 'slim-v1' or not result_path.startswith('docs/')
+                    or not result_path.endswith('.md') or result_path.startswith('docs/wiki/')
+                    or result_path not in (knowledge_paths or [])):
+                raise HarnessError('result path requires slim approved docs Markdown output outside Wiki')
         if self.kind == 'design':
             if not approval_ref or write_paths or not knowledge_paths:
                 raise HarnessError('design approval requires exact knowledge outputs and no implementation writes')
@@ -433,15 +509,25 @@ class Harness:
         paths = [safe_path(self.root, p).relative_to(self.root).as_posix() for p in write_paths]
         if any(p.casefold().startswith(('.cache/', 'tools/agent-harness/')) or Path(p).name.casefold() == 'agents.md' for p in paths):
             raise HarnessError('implementation writes cannot change harness controls/cache')
-        outputs = knowledge_paths or [self.record_path(), 'docs/wiki/index.md', 'docs/wiki/sources.json']
+        record = result_path or 'docs/testing/records/' + self.state['requirement'] + '.md'
+        outputs = knowledge_paths or [record, 'docs/wiki/index.md', 'docs/wiki/sources.json']
         outputs = [knowledge_output_path(self.root, p) for p in outputs]
-        if self.record_path() not in outputs:
+        if record not in outputs:
             raise HarnessError('knowledge outputs must include task record')
         if set(paths) & set(outputs):
             raise HarnessError('implementation and knowledge writes must be disjoint')
         self.assert_workspace(self.state['baseline'], [])
         self.state.update(approval_ref=approval_ref, user_choices=decisions, write_paths=paths, knowledge_paths=outputs,
                           required_tests=required_tests, baseline=snapshot(self.root), phase='IMPLEMENT', checks={})
+        if workflow_policy:
+            self.state.update(workflow_policy=workflow_policy, red_policy=red_policy)
+        else:
+            self.state.pop('workflow_policy', None)
+            self.state.pop('red_policy', None)
+        if result_path:
+            self.state['result_path'] = result_path
+        else:
+            self.state.pop('result_path', None)
         self.state['prior_sources'] = {}
         for name in paths:
             source = safe_path(self.root, name)
@@ -451,6 +537,40 @@ class Harness:
                 prior.write_bytes(source.read_bytes())
                 self.state['prior_sources'][name] = dict(path=prior.relative_to(self.root).as_posix(), sha256=file_hash(prior))
         self.save('user_contract_approved', approval_ref=approval_ref)
+        return self.state
+
+    def amend_test_scope(self, approval_ref, contract_ref, reason, test_paths, required_tests, completion_ref=None):
+        if not self.slim or self.state.get('phase') not in {'IMPLEMENT', 'VERIFY'}:
+            raise HarnessError('test scope amendment requires actionable slim implementation')
+        if not approval_ref or not contract_ref or not reason or not test_paths or not required_tests:
+            raise HarnessError('test scope amendment requires approval, contract, reason and exact tests')
+        paths = [safe_path(self.root, p).relative_to(self.root).as_posix() for p in test_paths]
+        if any(not safe_path(self.root, p).is_file() or not (
+                p.startswith('tests/') and Path(p).suffix in {'.c', '.h', '.py'}
+                or p.startswith('scripts/test_') and Path(p).suffix == '.py') for p in paths):
+            raise HarnessError('only exact existing test paths may be amended')
+        if set(required_tests) != set(self.state['required_tests']):
+            raise HarnessError('amendment must preserve approved test names')
+        active = self.state.get('active')
+        if active:
+            dispatch = active.get('dispatch')
+            if (active['node'] != 'implementer' or not dispatch or not isinstance(completion_ref, dict)
+                    or completion_ref.get('actor_id') != dispatch['actor_id'] or not completion_ref.get('completion')):
+                raise HarnessError('active implementer requires Master-observed actor completion reference')
+            self.assert_workspace(active['before'], active['writes'])
+        else:
+            self.assert_workspace(self.state['baseline'], [])
+        self.check_inputs()
+        if active:
+            self.remember_outputs(active)
+        # 기대값 정렬의 의미 보존은 Master와 독립 검토가 판단한다. CLI는 범위와 근거만 검사한다.
+        amendment = dict(approval_ref=approval_ref, contract_ref=contract_ref, reason=reason,
+                         test_paths=paths, required_tests=required_tests, completion_ref=completion_ref)
+        self.state.setdefault('test_scope_amendments', []).append(amendment)
+        self.state.update(active=None, phase='IMPLEMENT', checks={}, baseline=snapshot(self.root),
+                          write_paths=sorted(set(self.state['write_paths']) | set(paths)))
+        self.state.pop('red_confirmation', None)
+        self.save('master_amended_test_scope', **amendment)
         return self.state
 
     def _reject(self, node, reason, evidence):
@@ -541,14 +661,19 @@ class Harness:
         self.state['reanalysis_note'] = explanation
         self.save('master_reanalysed')
 
-    def run_check(self, name):
+    def run_check(self, name, tests=None):
         phase = self.state.get('phase')
         node = {'IMPLEMENT': 'implementer', 'VERIFY': 'reviewer_qa', 'KNOWLEDGE': 'knowledge_manager'}.get(phase)
         allowed = {'IMPLEMENT': {'red', 'green', 'regression', 'build'}, 'VERIFY': {'build', 'regression'}, 'KNOWLEDGE': {'finish'}}
         if self.kind == 'design':
             allowed = {'VERIFY': {'docs'}, 'KNOWLEDGE': {'finish'}}
+        elif self.slim:
+            allowed['IMPLEMENT'].add('targeted')
         if not node or name not in allowed[phase]:
             raise HarnessError('check not allowed in this phase')
+        if tests is not None and (not self.slim or name not in {'targeted', 'red'} or not tests
+                                  or not set(tests).issubset(self.state['required_tests'])):
+            raise HarnessError('selected tests require approved exact targeted/red names')
         active, _, packet = self.active_packet(node)
         if not active['dispatch']:
             raise HarnessError('runtime actor is not bound')
@@ -566,7 +691,7 @@ class Harness:
         if not isinstance(command, list) or not command or not all(isinstance(arg, str) and arg for arg in command):
             raise HarnessError('DBMS check is not configured: ' + name)
         actor = packet['actor_id']
-        if name in {'green', 'regression'}:
+        if name in {'green', 'regression'} and not self.slim:
             self.verify_check('build', current=True, phase=phase, actor_id=actor)
         command = [sys.executable if arg == '{python}' else arg for arg in command]
         number = self.state.get('command_count', 0) + 1
@@ -578,8 +703,18 @@ class Harness:
         work.mkdir(exist_ok=True)
         env = dict(os.environ, AGENT_HARNESS_RUN_ID=self.run_id, AGENT_HARNESS_NODE_ID=phase,
                    AGENT_HARNESS_RESULT_FILE=str(report_path), AGENT_HARNESS_WORK_DIR=str(work), PYTHONUTF8='1')
+        # 호출자 환경에 남은 선택 목록이 전체 회귀를 축소하지 못하게 한다.
+        for key in ('AGENT_HARNESS_TEST_TARGETS', 'AGENT_HARNESS_WORKFLOW_POLICY'):
+            env.pop(key, None)
+        if self.slim:
+            env.update(AGENT_HARNESS_WORKFLOW_POLICY='slim-v1', AGENT_HARNESS_ACTOR_ID=actor,
+                       AGENT_HARNESS_SOURCE_DIGEST=self.source_digest(before))
+            if tests:
+                env['AGENT_HARNESS_TEST_TARGETS'] = json.dumps(tests)
         started_at = datetime.now(timezone.utc).isoformat()
         started = time.monotonic()
+        if self.slim and name == 'red':
+            self.state.pop('red_confirmation', None)
         self.save('command_started', check=name)
         try:
             process = subprocess.run(command, cwd=self.root, env=env, capture_output=True, timeout=config.get('timeout_seconds', 180))
@@ -596,6 +731,8 @@ class Harness:
                        phase=phase, actor_id=actor, stdout=(folder / 'stdout.log').relative_to(self.root).as_posix(),
                        stderr=(folder / 'stderr.log').relative_to(self.root).as_posix(),
                        stdout_hash=file_hash(folder / 'stdout.log'), stderr_hash=file_hash(folder / 'stderr.log'), failed_tests=[])
+        if self.slim:
+            receipt.update(workflow_policy='slim-v1', requested_tests=tests or [], test_scope='selected' if tests else 'full')
         if name in {'finish', 'docs'}:
             receipt['knowledge_outputs_digest'] = digest({p: file_hash(safe_path(self.root, p))
                                                          if safe_path(self.root, p).is_file() else None
@@ -613,8 +750,14 @@ class Harness:
                 try:
                     report = read_json(report_path)
                     receipt.update(report=report_path.relative_to(self.root).as_posix(), report_hash=file_hash(report_path))
-                    receipt['test_titles'] = validate_report(report, self.state['required_tests'], self.run_id,
+                    expected_tests = tests or self.state['required_tests']
+                    if self.slim:
+                        validate_slim_metadata(report, self.run_id, actor, receipt['source_digest'], expected_tests,
+                                               full=name == 'regression', phase=phase)
+                    receipt['test_titles'] = validate_report(report, expected_tests, self.run_id,
                                                             require_metrics=config.get('require_metrics', False))
+                    if self.slim and set(receipt['test_titles']) != set(report['config']['metadata']['requestedTests']):
+                        raise HarnessError('slim requested tests disagree with executed tests')
                 except (HarnessError, ValueError, TypeError, KeyError) as error:
                     receipt.update(passed=False, report_error=str(error))
                     report = locals().get('report', {})
@@ -623,7 +766,15 @@ class Harness:
                         r.get('status') == 'failed' for t in spec.get('tests', []) for r in t.get('results', []))]
                     return names + [n for child in suite.get('suites', []) for n in failures(child)]
                 if isinstance(report, dict) and report.get('config', {}).get('metadata', {}).get('harnessRunId') == self.run_id and not report.get('errors'):
-                    receipt['failed_tests'] = [n for s in report.get('suites', []) for n in failures(s)]
+                    try:
+                        if self.slim:
+                            validate_slim_metadata(report, self.run_id, actor, receipt['source_digest'],
+                                                   tests or self.state['required_tests'], full=name == 'regression', phase=phase)
+                        receipt['failed_tests'] = [n for s in report.get('suites', []) for n in failures(s)]
+                        if self.slim:
+                            receipt['failed_tests'] = [n for n in receipt['failed_tests'] if n in (tests or self.state['required_tests'])]
+                    except HarnessError:
+                        pass
             else:
                 receipt.update(passed=False, report_error='fresh report missing')
         path = folder / 'receipt.json'
@@ -656,6 +807,11 @@ class Harness:
                 raise HarnessError('command log modified')
         if value.get('report') and file_hash(safe_path(self.root, value['report'])) != value['report_hash']:
             raise HarnessError('test report modified')
+        if self.slim and name == 'regression':
+            report = read_json(safe_path(self.root, value['report']))
+            validate_slim_metadata(report, self.run_id, value['actor_id'], value['source_digest'],
+                                   self.state['required_tests'], full=True, phase=value['phase'])
+            validate_report(report, self.state['required_tests'], self.run_id)
         return value
 
     def confirm_red(self, explanation, failed_tests):
@@ -665,14 +821,20 @@ class Harness:
         if receipt['exit_code'] == 0 or not explanation or not failed_tests or not set(failed_tests).issubset(receipt['failed_tests']):
             raise HarnessError('functional Red requires actual named failures and Master explanation')
         self.state['red_confirmation'] = dict(explanation=explanation, failed_tests=failed_tests)
+        if self.slim:
+            self.state['red_confirmation']['receipt'] = dict(self.state['checks']['red'])
         self.save('master_confirmed_functional_red')
 
     def implementation_ready(self):
         self.require_phase('IMPLEMENT')
         _, _, packet = self.active_packet('implementer')
-        if not self.state.get('red_confirmation'):
+        if (not self.slim or self.state['red_policy']['required']) and not self.state.get('red_confirmation'):
             raise HarnessError('functional Red not confirmed')
-        for name in ('green', 'regression', 'build'):
+        if self.slim and self.state['red_policy']['required']:
+            if self.state['red_confirmation'].get('receipt') != self.state['checks'].get('red'):
+                raise HarnessError('confirmed Red receipt changed')
+            self.verify_check('red', phase='IMPLEMENT', actor_id=packet['actor_id'])
+        for name in (('regression',) if self.slim else ('green', 'regression', 'build')):
             self.verify_check(name, current=True, phase='IMPLEMENT', actor_id=packet['actor_id'])
         # 전이는 accept(implementer)에서만 한다. Master 직접 구현으로 단계를 우회하지 않는다.
 
@@ -682,7 +844,7 @@ class Harness:
             raise HarnessError('final user confirmation is required')
         self.check_inputs()
         self.assert_workspace(self.state['baseline'], [])
-        for name in (('docs',) if self.kind == 'design' else ('build', 'regression')):
+        for name in self.final_checks():
             self.verify_check(name, current=True, phase='VERIFY')
         self.verify_check('finish', current=True, phase='KNOWLEDGE')
         self.state.update(phase='DONE', completion_user_ref=user_ref)
@@ -693,6 +855,7 @@ class Harness:
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--run', required=True)
+    parser.add_argument('--summary', action='store_true', help='print compact metadata; preserve full evidence on disk')
     commands = parser.add_subparsers(dest='action', required=True)
     init = commands.add_parser('init'); init.add_argument('--requirement', required=True); init.add_argument('--inputs', nargs='+', required=True)
     init.add_argument('--kind', choices=('implementation', 'design'), default='implementation')
@@ -700,7 +863,8 @@ def main():
     dispatch = commands.add_parser('dispatch'); dispatch.add_argument('node'); dispatch.add_argument('--actor', required=True); dispatch.add_argument('--launch-message', required=True); dispatch.add_argument('--receipt', required=True)
     accept = commands.add_parser('accept'); accept.add_argument('node'); accept.add_argument('--result', required=True); accept.add_argument('--observation', required=True)
     approve = commands.add_parser('approve'); approve.add_argument('--contract', required=True)
-    check = commands.add_parser('run-check'); check.add_argument('name')
+    check = commands.add_parser('run-check'); check.add_argument('name'); check.add_argument('--tests', nargs='+')
+    amend = commands.add_parser('amend-test-scope'); amend.add_argument('--contract', required=True)
     red = commands.add_parser('confirm-red'); red.add_argument('--explanation', required=True); red.add_argument('--tests', nargs='+', required=True)
     reject = commands.add_parser('reject'); reject.add_argument('node'); reject.add_argument('--reason', required=True); reject.add_argument('--evidence', nargs='+', required=True); reject.add_argument('--completion-ref', required=True)
     pause = commands.add_parser('pause'); pause.add_argument('--reason', required=True); pause.add_argument('--questions', required=True)
@@ -722,7 +886,8 @@ def main():
             elif args.action == 'dispatch': result = h.dispatch(args.node, args.actor, Path(args.launch_message).read_text(encoding='utf-8'), read_json(args.receipt))
             elif args.action == 'accept': result = h.accept(args.node, read_json(args.result), read_json(args.observation))
             elif args.action == 'approve': result = h.approve(**read_json(args.contract))
-            elif args.action == 'run-check': result = h.run_check(args.name)
+            elif args.action == 'run-check': result = h.run_check(args.name, args.tests)
+            elif args.action == 'amend-test-scope': result = h.amend_test_scope(**read_json(args.contract))
             elif args.action == 'confirm-red': result = h.confirm_red(args.explanation, args.tests)
             elif args.action == 'reject': result = h.reject(args.node, args.reason, args.evidence, args.completion_ref)
             elif args.action == 'pause': result = h.pause(args.reason, read_json(args.questions))
@@ -731,7 +896,18 @@ def main():
             elif args.action == 'verify-packet': result = h.active_packet(args.node)[2]
             elif args.action == 'finish': result = h.finish(args.user_ref)
             else: result = h.state
-            print(json.dumps(result, ensure_ascii=True, indent=2))
+            output = result
+            if args.summary and args.action not in {'dispatch', 'verify-packet'}:
+                output = dict(run_id=h.run_id, phase=h.state.get('phase'),
+                              rejection_count=h.state.get('rejection_count'), state_file=str(h.state_file))
+                if isinstance(result, dict):
+                    output.update({key: result[key] for key in ('node_id', 'actor_id', 'attempt', 'input_digest',
+                                  'source_digest', 'name', 'passed', 'exit_code', 'elapsed_ms', 'report', 'report_error') if key in result})
+                active = h.state.get('active')
+                if active:
+                    output.update(node=active['node'], packet=active['packet'])
+                output['checks'] = h.state.get('checks', {})
+            print(json.dumps(output, ensure_ascii=True, indent=2))
             if args.action == 'run-check' and args.name != 'red' and not result['passed']:
                 return 1
             return 0

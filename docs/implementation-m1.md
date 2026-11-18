@@ -47,7 +47,7 @@ MdEvent가 값·결과 메모리를 소유하고 DB/요청 종료 뒤에도 유�
 | M1-read-ahead | 뒤의 잘못된 UTF-8보다 앞 문장 먼저 반영·분할 입력 |
 | M1-argv-wire | help/version·인자 오류·진단 필드·기본 표 |
 
-정식 run m1-native-20261117에서 최초 build 성공·실제 Red 1 PASS/15 FAIL을 확인한 뒤 구현했다. 최종 Implementer Green/회귀와 독립 Reviewer2 새 build/회귀가 16/16 PASS했고 추가 SQL/스키마/저장36개·실제 read-only stdout5개도 PASS했다. 단위 case 안에는 cmocka 함수 3개가 있다. 상세 원문 영수증·반려 수정·부분 GWT 대응은 [실제 결과](testing/m1-results.md)를 따른다. 최종 사용자 확인은 대기 중이다.
+정식 run m1-native-20261117에서 최초 build 성공·실제 Red 1 PASS/15 FAIL을 확인한 뒤 구현했다. 최종 Implementer Green/회귀와 독립 Reviewer2 새 build/회귀가 16/16 PASS했고 추가 SQL/스키마/저장36개·실제 read-only stdout5개도 PASS했다. 단위 case 안에는 cmocka 함수 3개가 있다. 상세 원문 영수증·반려 수정·부분 GWT 대응은 [실제 결과](testing/m1-results.md)를 따른다. 사용자가 M1 완료를 승인했고 정식 run은 DONE이다.
 
 ## 후속 증분과 완료 조건
 
@@ -64,4 +64,4 @@ M1 완료에는 실제 Green·누적 회귀·독립 QA·검증된 지식 기록�
 - 이벤트가 결과를 소유하므로 DB/요청 해제 뒤에도 값이 유효하다. 반영 진단은 고정 크기로 보존한다. inline 경로 용량 초과는 잘라 사실처럼 보이지 않고 null로 보고한다.
 - 별도 fault 실행 파일에만 실패 주입을 컴파일한다. 일반 바이너리는 시험 환경변수를 무시한다. 단위·CLI·실제 프로세스/저장 검사 범위를 구분한다.
 
-구현·QA 완료는 M1 범위이며 전체 Phase 1·migrate·후속 Phase나 전원 차단 복구를 완료했다는 뜻이 아니다. Goal 유지 지시와 도구 usageLimited 상태도 구분한다.
+구현·QA 완료는 M1 범위이며 전체 Phase 1·migrate·후속 Phase나 전원 차단 복구를 완료했다는 뜻이 아니다. 사용자 완료 승인과 하네스 DONE을 확인했으며 Goal 최종 갱신은 Master가 수행한다.

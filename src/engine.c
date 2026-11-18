@@ -261,30 +261,48 @@ MdNext md_request_next(MdRequest *r, MdEvent *e) {
 void md_request_close(MdRequest *r) { free(r); }
 bool md_operate(const MdOperationOptions *o, MdEvent *e) {
     memset(e, 0, sizeof *e);
-    if (o->operation != MD_INIT) {
-        e->has_diagnostic = e->stop = true;
-        md_diag(&e->diagnostic, "UNSUPPORTED_FEATURE", "prepare", NULL, NULL,
-                "migrate is a future Phase 1 increment");
-        return false;
+    MdMigration migration = {0};
+    MdDb *target = NULL, *source = NULL;
+    bool ok = false;
+    if (!o || !o->schema_dir || !o->data_dir ||
+        (o->operation != MD_INIT && o->operation != MD_MIGRATE) ||
+        (o->operation == MD_MIGRATE && !o->source_data_dir)) {
+        md_diag(&e->diagnostic, "ARGUMENT_ERROR", "arguments", "arguments", NULL, "Invalid management options");
+        goto done;
     }
-    MdDb *db = calloc(1, sizeof *db);
-    if (!db) {
-        e->has_diagnostic = true;
-        md_diag(&e->diagnostic, "RESOURCE_ERROR", "prepare", NULL, NULL, "DB allocation failed");
-        return false;
+    /* plan 구조 오류는 파일/스키마 접근 오류보다 먼저 보고한다. */
+    if (o->operation == MD_MIGRATE && !md_plan_load(o->plan_path, &migration, &e->diagnostic))
+        goto done;
+    target = calloc(1, sizeof *target);
+    if (!target) goto resource;
+    target->lease = INVALID_HANDLE_VALUE;
+    target->data_dir = md_path(o->data_dir);
+    if (!target->data_dir) goto resource;
+    if (!md_catalog_load(o->schema_dir, target, &e->diagnostic)) goto done;
+    if (o->operation == MD_INIT) {
+        ok = md_storage_init(target, e);
+        goto done;
     }
-    db->lease = INVALID_HANDLE_VALUE;
-    db->data_dir = md_path(o->data_dir);
-    bool ok = db->data_dir && md_catalog_load(o->schema_dir, db, &e->diagnostic);
-    if (ok)
-        ok = md_storage_init(db, e);
-    else if (!e->diagnostic.code[0])
-        md_diag(&e->diagnostic, "IO_ERROR", "prepare", "data", o->data_dir, "Invalid output path");
+    source = calloc(1, sizeof *source);
+    if (!source) goto resource;
+    source->lease = INVALID_HANDLE_VALUE;
+    source->data_dir = md_path(o->source_data_dir);
+    if (!source->data_dir) goto resource;
+    if (!md_storage_source(source, &e->diagnostic) ||
+        !md_mapping_prepare(&migration, source, target, &e->diagnostic))
+        goto done;
+    ok = md_storage_migrate(source, target, &migration, e);
+    goto done;
+resource:
+    md_diag(&e->diagnostic, "RESOURCE_ERROR", "prepare", "data", NULL, "Management context allocation failed");
+done:
     if (!ok) {
         e->has_diagnostic = e->stop = true;
         e->diagnostic.output_ready = MD_NO;
     }
-    md_close(db);
+    md_migration_free(&migration);
+    md_close(target);
+    md_close(source);
     return ok;
 }
 void md_event_destroy(MdEvent *e) {

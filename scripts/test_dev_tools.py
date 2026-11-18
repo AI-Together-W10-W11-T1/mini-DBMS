@@ -11,6 +11,24 @@ import dev_tools as tools
 
 
 class ToolChecks(unittest.TestCase):
+    def test_documentation_json_does_not_invalidate_code_graph(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            (root / 'docs').mkdir()
+            (root / 'docs/sources.json').write_text('{}')
+            (root / 'config.json').write_text('{}')
+            (root / 'engine.c').write_text('int x;')
+            with patch.object(tools, 'ROOT', root):
+                self.assertEqual(set(tools.source_hashes()), {'config.json', 'engine.c'})
+                before = tools.source_hashes()
+                (root / 'docs/sources.json').write_text('{"changed": true}')
+                self.assertEqual(tools.changed(before, tools.source_hashes()), [])
+                (root / 'new.c').write_text('int y;')
+                (root / 'config.json').write_text('{"flag": true}')
+                (root / 'engine.c').unlink()
+                self.assertEqual(tools.changed(before, tools.source_hashes()),
+                                 ['config.json', 'engine.c', 'new.c'])
+
     def test_new_wiki_page_requires_review_registration(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)

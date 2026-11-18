@@ -20,4 +20,4 @@ README 실행 명령·스키마/SQL 예제, HANDOFF 재개 상태, 설정/대기
 
 ## 미완료·다음 행동
 
-전체 Phase 1의 추가 SQL·migrate와 Phase 2/3는 남아 있다. 대용량 성능·전원 차단 복구는 미검증이다. **최종 사용자 확인 대기**이며 확인 뒤 Master가 해당 run을 완료한다. Goal은 명시 유지됐으나 Master 확인 도구 상태는 usageLimited이고 새 Goal을 생성하거나 active/complete로 바꾸지 않았다. 커밋·원격 게시·추가 유료 서비스 도입은 수행하지 않았다.
+전체 Phase 1의 추가 SQL·migrate와 Phase 2/3는 남아 있다. 대용량 성능·전원 차단 복구는 미검증이다. **사용자 완료 승인·하네스 DONE**을 확인했다. Master는 승인된 Git 설정·인수인계 변경을 보존하고 검증 당시 문서 해시를 대조한 뒤 정상 pause/resume/finish 절차로 원래 M1 run을 완료했다. 최신 완료 문서는 별도 유지보수로 Wiki·마감 검사를 수행한다. Goal 최종 갱신은 Master가 수행한다. 커밋·원격 게시·추가 유료 서비스 도입은 수행하지 않았다.

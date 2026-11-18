@@ -298,6 +298,8 @@ static int diagnostic_exit(const MdDiagnostic *d, bool preparing) {
         return 2;
     if (preparing)
         return 3;
+    if (d->output_ready == MD_NO)
+        return 4;
     if (d->rollback == MD_ROLLBACK_FAILED || d->rollback == MD_ROLLBACK_UNKNOWN ||
         !strcmp(d->code, "RECOVERY_REQUIRED"))
         return 6;
@@ -336,7 +338,8 @@ static int event_output(MdEvent *e, const char *operation, const char *source, c
         begin(&b);
         bool rendered = render(&e->result, json, &b);
         bool injected =
-            e->result.kind == MD_STATEMENT_OK && (fault("stdout") || fault("stdout_cleanup"));
+            (e->result.kind == MD_STATEMENT_OK && (fault("stdout") || fault("stdout_cleanup"))) ||
+            (e->result.kind == MD_OPERATION_OK && fault("manage_stdout"));
         bool ok = rendered && !injected && stream_write(STD_OUTPUT_HANDLE, b.p, b.n);
         if (!ok) {
             MdDiagnostic d = {0};

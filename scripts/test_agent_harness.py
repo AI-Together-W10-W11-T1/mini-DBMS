@@ -2,6 +2,8 @@ import base64
 import tempfile
 import unittest
 import json
+import io
+from contextlib import redirect_stdout
 from types import SimpleNamespace
 from unittest.mock import patch
 from pathlib import Path
@@ -89,7 +91,7 @@ class FlowTest(unittest.TestCase):
         real = Path(__file__).resolve().parents[1] / 'tools/agent-harness/roles.json'
         rolepath.write_bytes(real.read_bytes())
         (rolepath.parent / 'checks.json').write_text(json.dumps({'require_metrics': False,
-            'commands': {key: ['{python}', '-c', 'pass'] for key in ('red', 'green', 'regression', 'build')}}), encoding='utf-8')
+            'commands': {key: ['{python}', '-c', 'pass'] for key in ('red', 'green', 'regression', 'build', 'targeted')}}), encoding='utf-8')
         self.h = Harness(self.root, 'run-1')
         self.h.create('DBMS-001', ['input.md'])
 
@@ -473,6 +475,216 @@ class FlowTest(unittest.TestCase):
         self.execute('build')
         (self.root / 'other.cpp').write_text('unrelated output', encoding='utf-8')
         self.h.verify_check('build', current=True)
+
+
+class SlimFlowTest(unittest.TestCase):
+    setUp = FlowTest.setUp
+    bind = FlowTest.bind
+    planned = FlowTest.planned
+    execute = FlowTest.execute
+
+    def slim(self):
+        self.planned()
+        self.h.state.update(workflow_policy='slim-v1',
+                            red_policy={'required': False, 'reason': 'documentation-only fixture', 'risk_flags': []})
+        self.bind('implementer')
+
+    def regression(self, check='regression', selected=None, exit_code=0, transform=None, **metadata):
+        def run(command, **kwargs):
+            self.last_env = kwargs['env']
+            report = {'config': {'metadata': dict(harnessRunId=self.h.run_id,
+                workflowPolicy='slim-v1', nodeId='IMPLEMENT', actorId=self.h.active_packet('implementer')[2]['actor_id'],
+                sourceDigest=self.h.source_digest(), testScope='full', requestedTests=['text test'],
+                build={'passed': True, 'configure_exit_code': 0, 'compile_exit_code': 0,
+                       'directory': str(self.root / '.cache/build'), 'cache_reused': False}) | metadata},
+                'errors': [], 'suites': [{'specs': [{'title': 'text test', 'tests': [
+                    {'expectedStatus': 'passed', 'results': [{'status': 'passed'}]}]}]}]}
+            if transform:
+                transform(report)
+            Path(kwargs['env']['AGENT_HARNESS_RESULT_FILE']).write_text(json.dumps(report), encoding='utf-8')
+            return SimpleNamespace(returncode=exit_code, stdout=b'integrated fixture', stderr=b'')
+        with patch('agent_harness.subprocess.run', side_effect=run):
+            return self.h.run_check(check, selected)
+
+    def test_slim_integrated_regression_does_not_require_separate_build(self):
+        self.slim()
+        try:
+            receipt = self.regression()
+        except HarnessError as error:
+            self.fail('integrated build/full regression must run without separate build receipt: ' + str(error))
+        self.assertTrue(receipt['passed'])
+
+    def test_slim_rejects_selected_regression_as_final_evidence(self):
+        self.slim(); self.execute('build')
+        self.assertFalse(self.regression(testScope='selected')['passed'])
+
+    def test_slim_rejects_report_from_other_actor(self):
+        self.slim(); self.execute('build')
+        self.assertFalse(self.regression(actorId='other-actor')['passed'])
+
+    def test_slim_rejects_wrong_phase_stale_source_and_failed_build(self):
+        self.slim()
+        for metadata in ({'nodeId': 'VERIFY'}, {'sourceDigest': 'old'}, {'build': {'passed': False}},
+                         {'requestedTests': ['other']}, {'requestedTests': ['text test', 'not executed']}):
+            with self.subTest(metadata=metadata):
+                self.assertFalse(self.regression(**metadata)['passed'])
+
+    def test_slim_partial_check_cannot_complete_implementation(self):
+        self.slim(); self.execute('build'); self.execute('green')
+        with self.assertRaisesRegex(HarnessError, 'missing check: regression'):
+            self.h.implementation_ready()
+        self.regression(); self.h.implementation_ready()
+
+    def test_slim_targets_cannot_shrink_regression_or_escape_approval(self):
+        self.slim()
+        for name, tests in (('regression', ['text test']), ('red', ['other'])):
+            with self.assertRaisesRegex(HarnessError, 'approved exact'):
+                self.h.run_check(name, tests)
+
+    def test_slim_targeted_receipt_is_interim_and_environment_is_bound(self):
+        self.slim()
+        receipt = self.regression(check='targeted', selected=['text test'], testScope='selected')
+        self.assertTrue(receipt['passed'])
+        self.assertEqual(json.loads(self.last_env['AGENT_HARNESS_TEST_TARGETS']), ['text test'])
+        self.assertEqual(self.last_env['AGENT_HARNESS_NODE_ID'], 'IMPLEMENT')
+        self.assertEqual(self.last_env['AGENT_HARNESS_SOURCE_DIGEST'], self.h.source_digest())
+        with self.assertRaisesRegex(HarnessError, 'missing check: regression'):
+            self.h.implementation_ready()
+        with patch.dict('os.environ', {'AGENT_HARNESS_TEST_TARGETS': '["other"]'}):
+            self.regression()
+        self.assertNotIn('AGENT_HARNESS_TEST_TARGETS', self.last_env)
+
+    def test_opening_legacy_state_does_not_rewrite_it(self):
+        before = self.h.state_file.read_bytes()
+        reopened = Harness(self.root, self.h.run_id)
+        self.assertFalse(reopened.slim)
+        self.assertEqual(self.h.state_file.read_bytes(), before)
+
+    def test_slim_red_rejects_skipped_missing_or_unknown_execution(self):
+        self.slim()
+        for status in ('skipped', 'unknown', None):
+            def incomplete(report):
+                test = report['suites'][0]['specs'][0]['tests'][0]
+                test['results'] = [{'status': 'failed'}]
+                report['suites'][0]['specs'][0]['tests'].append(
+                    {'expectedStatus': 'passed', 'results': [{'status': status}] if status else []})
+            with self.subTest(status=status):
+                self.regression(check='red', exit_code=1, transform=incomplete)
+                with self.assertRaisesRegex(HarnessError, 'functional Red'):
+                    self.h.confirm_red('assertion plus incomplete execution', ['text test'])
+
+    def test_slim_red_accepts_assertion_failure_and_rejects_global_errors(self):
+        self.slim()
+        def fail(report):
+            report['suites'][0]['specs'][0]['tests'][0]['results'][0]['status'] = 'failed'
+        self.regression(check='red', exit_code=1, transform=fail)
+        self.h.confirm_red('actual fixture assertion', ['text test'])
+        self.assertIn('receipt', self.h.state['red_confirmation'])
+        def environment_error(report):
+            fail(report); report['errors'] = [{'message': 'setup failed'}]
+        self.regression(check='red', exit_code=1, transform=environment_error)
+        with self.assertRaisesRegex(HarnessError, 'functional Red'):
+            self.h.confirm_red('not a functional failure', ['text test'])
+        self.assertNotIn('red_confirmation', self.h.state)
+
+    def test_slim_result_path_reuses_one_approved_markdown_output(self):
+        result, observation = self.bind('planner')
+        result.update(status='PASS', plan={'test_cases': ['text test'], 'proposed_changes': ['impl.cpp']})
+        self.h.accept('planner', result, observation)
+        defaults = dict(workflow_policy='slim-v1', red_policy={'required': False, 'reason': 'docs', 'risk_flags': []})
+        for path, outputs in (('README.md', ['README.md']), ('docs/wiki/index.md', ['docs/wiki/index.md']),
+                              ('docs/results.md', ['docs/other.md'])):
+            with self.assertRaises(HarnessError):
+                self.h.approve('A', ['impl.cpp'], ['text test'], result_path=path, knowledge_paths=outputs, **defaults)
+        self.h.approve('A', ['impl.cpp'], ['text test'], result_path='docs/results.md',
+                       knowledge_paths=['docs/results.md', 'docs/wiki/index.md'], **defaults)
+        self.assertEqual(self.h.record_path(), 'docs/results.md')
+        self.assertNotIn('docs/testing/records/DBMS-001.md', self.h.outputs())
+
+    def test_policy_requires_high_risk_red_and_rejects_unknown_risks(self):
+        result, observation = self.bind('planner')
+        result.update(status='PASS', plan={'test_cases': ['text test'], 'proposed_changes': ['impl.cpp']})
+        self.h.accept('planner', result, observation)
+        for flag in ('bugfix', 'storage_atomicity', 'data_structure_invariant', 'overflow',
+                     'concurrency', 'ownership', 'harness_evidence', 'unknown'):
+            with self.subTest(flag=flag):
+                with self.assertRaisesRegex(HarnessError, 'explicit reason'):
+                    self.h.approve('approval', ['impl.cpp'], ['text test'], workflow_policy='slim-v1',
+                                   red_policy={'required': False, 'reason': 'reason', 'risk_flags': [flag]})
+        with self.assertRaisesRegex(HarnessError, 'unknown workflow'):
+            self.h.approve('approval', ['impl.cpp'], ['text test'], workflow_policy='future')
+        self.h.approve('approval', ['impl.cpp'], ['text test'], workflow_policy='slim-v1',
+                       red_policy={'required': True, 'reason': 'evidence gate', 'risk_flags': ['harness_evidence']})
+        self.bind('implementer'); self.regression()
+        with self.assertRaisesRegex(HarnessError, 'Red not confirmed'):
+            self.h.implementation_ready()
+
+    def test_amend_records_observed_actor_completion_and_preserves_rejections(self):
+        path = self.root / 'tests/existing.c'; path.parent.mkdir(); path.write_text('assertion', encoding='utf-8')
+        self.h.state['baseline'] = snapshot(self.root)
+        self.slim(); self.regression()
+        self.h.state['rejection_count'] = 2
+        args = dict(approval_ref='user A', contract_ref='existing contract', reason='expectation alignment',
+                    test_paths=['tests/existing.c'], required_tests=['text test'])
+        with self.assertRaisesRegex(HarnessError, 'completion reference'):
+            self.h.amend_test_scope(**args)
+        actor = self.h.active_packet('implementer')[2]['actor_id']
+        self.h.amend_test_scope(**args, completion_ref={'actor_id': actor, 'completion': 'Master observed complete'})
+        self.assertEqual(self.h.state['rejection_count'], 2)
+        self.assertEqual(self.h.state['checks'], {})
+        self.assertIsNone(self.h.state['active'])
+        self.assertIn('tests/existing.c', self.h.state['write_paths'])
+        self.assertEqual(self.h.state['test_scope_amendments'][0]['completion_ref']['actor_id'], actor)
+        self.bind('implementer')
+
+    def test_amend_rejects_production_new_files_and_test_name_removal(self):
+        self.slim()
+        for paths, names in ((['input.md'], ['text test']), (['tests/missing.c'], ['text test']),
+                             (['input.md'], ['replacement'])):
+            with self.assertRaises(HarnessError):
+                self.h.amend_test_scope('A', 'contract', 'reason', paths, names)
+
+    def test_amend_accepts_existing_python_cli_test_with_same_guards(self):
+        path = self.root / 'tests/existing.py'
+        path.parent.mkdir(); path.write_text('assert True\n', encoding='utf-8')
+        self.h.state['baseline'] = snapshot(self.root)
+        self.slim(); self.regression()
+        self.h.state['rejection_count'] = 2
+        actor = self.h.active_packet('implementer')[2]['actor_id']
+        args = dict(approval_ref='user A', contract_ref='existing SQL contract', reason='expectation alignment',
+                    test_paths=['tests/existing.py'], required_tests=['text test'],
+                    completion_ref={'actor_id': actor, 'completion': 'Master observed complete'})
+        try:
+            self.h.amend_test_scope(**args)
+        except HarnessError as error:
+            self.fail('existing tests Python CLI fixture must be amendable: ' + str(error))
+        self.assertIn('tests/existing.py', self.h.state['write_paths'])
+        self.assertEqual(self.h.state['rejection_count'], 2)
+        self.assertEqual(self.h.state['checks'], {})
+        self.assertIsNone(self.h.state['active'])
+        self.assertEqual(self.h.state['test_scope_amendments'][0]['completion_ref']['actor_id'], actor)
+
+    def test_summary_cli_preserves_full_state_and_normal_amend_command(self):
+        from agent_harness import main, write_json
+        path = self.root / 'tests/existing.c'; path.parent.mkdir(); path.write_text('assertion', encoding='utf-8')
+        self.h.state['baseline'] = snapshot(self.root)
+        self.slim()
+        actor = self.h.active_packet('implementer')[2]['actor_id']
+        contract = self.root / '.cache/amend.json'
+        write_json(contract, dict(approval_ref='A', contract_ref='contract', reason='alignment',
+                   test_paths=['tests/existing.c'], required_tests=['text test'],
+                   completion_ref={'actor_id': actor, 'completion': 'observed completed'}))
+        output = io.StringIO()
+        with patch('agent_harness.__file__', str(self.root / 'scripts/agent_harness.py')), \
+                patch('sys.argv', ['agent_harness.py', '--run', 'run-1', '--summary', 'amend-test-scope', '--contract', str(contract)]), \
+                redirect_stdout(output):
+            self.assertEqual(main(), 0)
+        brief = json.loads(output.getvalue())
+        self.assertEqual(brief['phase'], 'IMPLEMENT')
+        self.assertNotIn('baseline', brief)
+        state = json.loads(self.h.state_file.read_text(encoding='utf-8'))
+        self.assertIn('baseline', state)
+        self.assertEqual(state['test_scope_amendments'][0]['completion_ref']['actor_id'], actor)
 
 
 class DesignFlowTest(unittest.TestCase):

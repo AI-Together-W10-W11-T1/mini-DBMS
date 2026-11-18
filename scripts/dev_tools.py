@@ -45,8 +45,9 @@ def source_hashes():
         folders[:] = sorted(name for name in folders if name not in SKIP)
         for name in sorted(files):
             path = Path(directory) / name
-            if path.suffix.lower() in CODE:
-                result[path.relative_to(ROOT).as_posix()] = digest(path)
+            relative = path.relative_to(ROOT)
+            if path.suffix.lower() in CODE and not (relative.parts[0] == 'docs' and path.suffix.lower() == '.json'):
+                result[relative.as_posix()] = digest(path)
     return result
 
 

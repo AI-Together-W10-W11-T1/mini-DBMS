@@ -1,7 +1,99 @@
 # mini-DBMS 작업 기록
 
+## 2026-11-18 수요일 — 문서 마감 정책 정렬·M8 완료 확인 (Asia/Seoul, 최신)
 
-## 2026-11-17 화요일 — 실제 M1 구현·독립 QA (Asia/Seoul, 최신)
+- 문서 정책의 변경 이유·실제 작성자/독립 검증·실패·한계·다음 행동은 [단일 결과](testing/document-close-results.md)를 따른다. 현재 사용자 ‘완료 승인’을 받아 수동 정책 유지보수를 완료했다.
+- M8은 실제 사용자 완료 승인을 Master가 정상 전이에 반영해 DONE을 확인했다. [M8 결과](testing/m8-results.md)에 당시 검사·수치·한계를 보존했다. 다음은 전체204개 인수 감사 계획 협의다.
+
+## 2026-11-18 수요일 — M8 migrate·관리 실패 처리 (Asia/Seoul, 최신)
+
+- 목적·사용자 A 선택·GWT20·실제 Red/회귀·독립 검사·반려1 해결·fixture/환경 실패·측정·한계는 [단일 M8 결과](testing/m8-results.md)에 모았다. 출처는 Master 현재 승인 요약·정식 packet/영수증·작성자/독립 결과·기술 원문이다.
+- 최종 작성자/독립123/123·독립 프로세스36/36·실제 native 경로12/12 PASS다. 최종 사용자 완료 승인을 기다리며 Master가 정상 인수 뒤 USER_REVIEW로 이동한다. 새 Goal은 없다. 다음은 결과 확인과 전체204개 인수 감사 계획 협의다.
+- Knowledge는 승인 문서와 Wiki를 정리하고 원문 대조·정적 검사·정상 run-check finish를 수행한다. 제품 검사 재실행은 생략했다. M7 ORDER 없는 결과 순서 관찰과 대용량/전원 손실/전수 fault 미검증은 보존한다.
+
+## 2026-11-18 수요일 — M7 UNION 구현·독립 QA (Asia/Seoul, 최신)
+
+- 목적·사용자 A 선택·heap 전체 열 dedup·GWT13·실제 검사·fixture 오류·측정·한계는 [단일 M7 결과](testing/m7-results.md)에 모았다. 출처는 현재 승인 요약·정식 packet·작성자/독립 결과·영수증·기술 원문이다.
+- 사용자 ‘M7 완료 승인’을 Master가 정상 finish에 반영해 DONE·품질 반려0회를 확인했다. 이번은 완료 후 문서 유지보수이며 Wiki 재등록·직접 dev_tools.py finish로 마감한다. 제품 검사를 재실행하지 않았다. 새 Goal은 없다. 다음은 migrate·관리와 전체 인수 회귀 계획 협의다.
+
+## 2026-11-18 수요일 — M6 집계 구현·독립 QA (Asia/Seoul, 최신)
+
+- 목적·사용자 A 선택·선형 그룹·GWT14·실제 검사·반려2회와 원인 재분석·fixture 오류·측정·한계는 [단일 M6 결과](testing/m6-results.md)에 모았다. 출처는 현재 승인 요약·정식 packet·작성자/독립 결과·영수증·기술 원문이다.
+- 최종 작성자/독립90/90·oracle30·음성28·추가10 PASS다. 현재 사용자의 M6 완료 승인을 Master가 정상 finish --user-ref로 반영했고 정식 state.json의 DONE·completion_user_ref를 확인했다. 이번은 DONE 뒤 문서 유지보수이며 Wiki 재등록·직접 dev_tools.py finish로 마감한다. 제품 검사를 재실행하지 않았다. 다음은 UNION 계획 협의다.
+
+## 2026-11-18 수요일 — M5 JOIN 구현·독립 QA (Asia/Seoul, 최신)
+
+- 사용자 A 승인 범위·설계·GWT·실제 검사·R1 반려1회 해결·측정·마감·한계는 [단일 M5 결과](testing/m5-results.md)에 모았다. 출처는 Master의 현재 승인 요약·정식 packet·영수증·독립 QA 원문이다.
+- M5 사용자 완료 승인·하네스 DONE을 확인했다. 다음은 COUNT·GROUP BY·HAVING 계획 협의다. Knowledge 단계는 승인 문서·Wiki·마감만 수행하고 제품 검사를 재실행하지 않았다.
+
+## 2026-11-18 수요일 — workflow 간소화 실제 검증 (Asia/Seoul, 최신)
+
+- 목적·결정·검증·해결한 실패·한계는 중복하지 않고 [단일 slim-v1 결과](testing/workflow-slim-v1-results.md)에 모았다. 사용자 A 선택의 도구 유지보수이며 C/SQL 새 기능 변경은 없다.
+- 완료 승인·정상 CLI 확인·다음 행동은 [단일 결과](testing/workflow-slim-v1-results.md)를 따른다. 이번은 완료 후 상태 문서 유지보수이며 기능 검사를 재실행하지 않았다.
+- 출처는 Master가 전달한 현재 승인 범위와 실제 외부 Python/정식 native 영수증·원문이다. 문서 마감의 최신 실행 결과도 위 단일 결과를 따른다. 아래는 당시 기록이다.
+
+## 2026-11-18 수요일 — M4 완료 승인 반영 (Asia/Seoul, 최신)
+
+- 목적은 현재 사용자의 M4 완료 승인을 문서에 반영하는 것이다. Master가 USER_REVIEW 인수 문서를 수정하기 전에 정상 finish --user-ref로 m4-native-20261117의 DONE·completion_user_ref를 확인했다. 출처는 현재 완료 지시의 Master 요약과 정식 state.json이다.
+- 정식11-finish exit0·회귀63/63·독립88/88과 검증 한계를 보존했다. 이번 변경은 run 종료 뒤 별도 문서 유지보수이며 소스·시험·계약 변경이나 기능 검사 재실행은 없다. Master가 Wiki 재등록·문서 마감 검사를 수행한다.
+- M1 Goal complete와 M4 새 Goal 미생성을 유지한다. 다음은 JOIN 증분 계획 협의이며 완료 승인은 후속 구현 승인이 아니다. 개인 원장·대화 본문 복제나 커밋·게시는 하지 않았다.
+
+## 2026-11-18 수요일 — M4 실제 구현·독립 QA (Asia/Seoul, 당시 기록)
+
+- 목적·결정: 사용자 A 선택에 따라 SELECT·독립 VALUES의 정렬·페이지 전체를 구현하고 독립 QA·문서화 뒤 최종 확인 한 번을 받는다. 기존 SQL 계약을 유지하며 새 Goal은 생성하지 않았다.
+- 핵심: 최종 출력 이름으로만 결합하고 다중 키·NULL 위치·ASC/DESC를 처리한다. 요청별 힙 정렬과 실제 행 수로 제한하는 페이지 처리를 사용하며 저장 파일·공개 API를 유지했다. 전체 VALUES 검증이 FETCH 0보다 먼저다.
+- 실제 검사: 정식 m4-native-20261117의 1-build0→2-red8에서 production/public7 SHA 유지·48/63PASS·새 기능15개 runtime실패를 Master가 확인했다. 4-green61/63의 Python3.9 Counter 비교·table진단파싱 드라이버2건을 동등 검증으로 수정했다. 최종5-build/6-green/7-regression과 독립8-build/9-regression은 exit0·63/63PASS다. 단위 CTest 하나 안에 cmocka6함수가 있다.
+- 독립 추가88/88(oracle60·경계10·오류18)과 Master의 실제 M3 작성 DB→M4 정렬·별칭·VALUES·페이지·재시작·테이블SHA불변 시연도 PASS다. 최종digest는 941a5349fba7bb6d163d32b698d6b9b585c37b76ccb6268f1183f9fbf5b1fa88이다.
+- M4 품질 반려0이다. 기존 M2 ORDER 미지원 임시 기대값 갱신을 위한 NEEDS_DECISION/정상재계약과 사용량 중단은 품질 반려와 구분한다. [M4 계획](implementation-m4.md)·[결과](testing/m4-results.md)·[DBMS-004](testing/records/DBMS-004.md), 인수인계·Wiki를 원문/증거와 대조했다. Wiki54개 출처·링크156개·SHA·공백 검사를 확인했고 실제10-finish exit0·Wiki 변경 없음 뒤 기록 재등록·최종 finish를 수행한다. vendor 부분 추출·네 파일 no-symbol 경고를 기능 실행과 구분한다.
+- 미완료·다음 행동: 최종 사용자 확인은 대기 중이며 아직 DONE이 아니다. M1/M2/M3 DONE·M1 Goal complete를 유지한다. 확인 뒤 JOIN 증분 계획을 협의한다. 전체 결과 메모리 적재·전체204개/성능/전원복구/모든alloc 검증 한계와 기존 M3 CloseHandle 미재현 한계를 보존한다.
+- 출처: 현재 사용자 A·후속 계속 지시의 Master 요약, 정식 네 역할 결과·commands1~9, src/tests, .cache/m4-reviewer/extra-results.json, .cache/m4-demo/receipt.json이다. 개인 원장·대화 본문 복제나 커밋·게시·새 의존성 도입은 하지 않았다.
+
+## 2026-11-17 화요일 — M3 완료 승인 반영 (Asia/Seoul, 당시 기록)
+
+- 목적과 결정은 사용자의 M3 완료 승인을 실행 상태와 문서에 반영하는 것이다. Master가 USER_REVIEW의 인수 문서를 수정하기 전에 정상 finish --user-ref를 실행했고 정식 m3-native-20261117의 DONE·completion_user_ref를 확인했다.
+- 정식 최신22-finish exit0·기존 회귀50/50·독립 추가76개와 검증 한계를 보존했다. 이번 변경은 run 종료 뒤 별도 문서 유지보수이며 C 소스·시험·계약을 변경하거나 기능 검사를 재실행하지 않았다.
+- README·HANDOFF·M3 계획/결과·DBMS-003·설정/대기·Wiki의 현재 상태를 사용자 승인·DONE으로 맞췄다. Master가 Wiki 원문 재등록·문서 마감 검사를 수행한다.
+- M1 Goal complete와 M3 새 Goal 미생성을 유지한다. 다음 행동은 후속 정렬/페이지 증분 계획을 사용자와 협의하는 것이며 완료 승인은 새 구현 범위의 승인이 아니다.
+- 출처는 현재 완료 승인 지시의 Master 요약과 정식 state.json의 phase·completion_user_ref, commands/22-finish/receipt.json이다. 개인 원장·대화 본문은 복제하지 않았다.
+
+## 2026-11-17 화요일 — M3 실제 구현·독립 QA (Asia/Seoul, 당시 기록)
+
+- 목적과 결정은 사용자 A 선택으로 UPDATE·DELETE·SET 계산·교체 실패 검증 전체를 구현하고 최종 결과를 한 번 확인받는 것이다. 기존 SQL·저장·CLI 계약을 유지했다.
+- 핵심은 old row 기준 다중 대입·정적 바인딩·중간 overflow 검사, 모든 새 행과 바이트 준비 뒤 실제 ReplaceFileW 성공에서 반영하는 것이다. 실패 상태별 원본 확인/복원·미해결 보존·반영 후 성공 건수와 후속 SQL 중단을 적용했다.
+- 정식 m3-native-20261117의 실제 네 역할에서 최초1-build0→2-red8의 새 M3 20개·추가 단위 함수 runtime 실패를 확인했다. 기존 CLI29개·cmocka4함수는 PASS였다. 첫 Green50/50 뒤 내부 보완과 최종 검사도 PASS했다.
+- 독립1차12-build/13-regression50/50·추가74 PASS와 별도 실제 읽기 거부 실험을 구분한다. 실험은 M3-QA-001의 잘못된 prepare/stdin 진단을 재현해 품질 반려1회로 기록했다. 14-build→15-red STORE01만실패/49PASS 뒤 저장 호출 경계의 execute/data 보정과 실제 UPDATE/DELETE 회귀를 추가했다.
+- 최종16-build/17-green/18-regression과 독립19-build/20-regression은 exit0·50/50 PASS이며 digest a65b0137b85ca8a58dc59ad09195f899973f1795cb44d82a29c546205b7ebeb8이다. 독립 최종76개와 실제 M2 작성 DB→M3 수정·삭제·ID재사용·재시작도 PASS다. 단위 CTest 하나 안에는 cmocka5함수가 있다.
+- [M3 계획](implementation-m3.md)·[결과](testing/m3-results.md)·[DBMS-003](testing/records/DBMS-003.md), README·HANDOFF·설정/대기·Wiki를 원문/증거와 대조했고 정식21-finish exit0·Wiki 변경 원문/페이지 없음 확인 후 결과 기록·재등록·최신 finish를 수행한다. vendor 부분 추출·네 파일 no-symbol 경고는 정적 도구 한계로 남는다. 희귀 오류 주입과 실제 OS 검증, 원본 읽기 handle 종료 실패 미재현 한계를 구분한다.
+- 최종 사용자 확인 대기다. M1/M2는 DONE, M1 Goal은 complete이며 M3 새 Goal은 생성하지 않았다. 정렬/페이지·JOIN·집계·UNION·migrate·Phase2/3와 성능/전원복구·전체204개 검증은 남아 있다.
+- 출처는 현재 사용자 A 선택의 Master 요약, 계약·실제 src/tests·정식 명령1~20·독립 attempt2 결과·Master 데모다. 개인 대화/원장 복제·커밋·게시는 하지 않았다. 다음 행동은 마감 영수증 확인과 M3 전체 결과의 사용자 최종 검토다.
+
+## 2026-11-17 화요일 — M2 완료 승인 반영 (Asia/Seoul, 당시 기록)
+
+- 목적은 사용자 M2 완료 승인을 하네스와 재개 문서에 반영하는 것이다. Master가 정식 `17-finish` exit 0과 인수 문서를 유지한 상태에서 정상 `finish --user-ref`를 실행했고 `m2-native-20261117`의 DONE·completion_user_ref를 확인했다.
+- README·HANDOFF·M2 계획/결과·DBMS-002·설정/대기·Wiki의 현재 상태를 사용자 승인·DONE으로 맞췄다. 이는 정식 run 종료 후 별도 문서 유지보수이며 Master가 Wiki 원문 재등록·마감 검사를 수행한다. C 소스·시험·계약은 변경하지 않았고 기능 검사는 재실행하지 않았다.
+- M1 Goal complete를 유지하며 M2 새 Goal은 생성하지 않았다. 다음 행동은 후속 UPDATE/DELETE·계산 증분 계획을 사용자와 협의하는 것이다. 완료 승인은 새 구현 범위의 승인이 아니다.
+- 출처는 현재 사용자 완료 지시의 Master 요약, 정식 run의 실제 state.json, [M2 결과](testing/m2-results.md), [DBMS-002](testing/records/DBMS-002.md)다. 대용량 성능·전원 차단 복구와 남은 Phase 1/2/3 기능의 검증 한계는 유지한다.
+
+## 2026-11-17 화요일 — M2 실제 구현·독립 QA (Asia/Seoul, 당시 기록)
+
+- 목적과 결정은 사용자 선택 1-A·2-A·3-B에 따라 복수 INSERT·확장 WHERE·단일 테이블 이름 처리·독립 VALUES를 구현하고 전체 결과를 한 번 검토받는 것이다. 후속 진행 지시를 Master가 구현 승인으로 전달했다.
+- 핵심 로직은 문장 전체 검증·직렬화 뒤 한 번의 append/flush·길이 복원, 모든 조건 가지의 정적 바인딩과 후위식/명시적 스택, NULL 3값 논리, 입력 별칭·출력 AS 범위와 위치별 VALUES 타입 추론이다. 기존 다섯 책임·공개 API·바이너리 포맷을 유지했다.
+- 정식 m2-native-20261117에서 실제 네 역할을 배정했다. 최초 build0 뒤 기능 Red8, 최종 Implementer11-build/12-green/13-regression과 Reviewer14-build/15-regression은 모두0·30/30 PASS다. 독립 추가 SQL104/104와 Master의 실제 M1 작성 파일→M2 열기·추가 시연도 PASS다. cmocka 등록 case 안에는 네 함수가 있다.
+- 첫 Green28/30은 새 fixture의 예약어 absent·소문자 users 고정 기대를 교정했다. 반복 IS/WHERE 등 문법 오류와 알려진 미지원 구문 분류도 회귀에 연결했다. M2 품질 반려0회이며 M1 이력과 별도다.
+- [M2 결과](testing/m2-results.md)·[DBMS-002](testing/records/DBMS-002.md)·README·HANDOFF·설정/대기·Wiki를 소스·시험·영수증과 대조했다. Wiki 원문 등록 후 정식16-finish exit0·변경 원문 없음/페이지 변경 없음을 확인했다. vendor 부분 추출·네 파일 no-symbol 한계를 보존하며 결과 기록 뒤 최신 문서를 다시 마감한다. 기능 실행과 정적 도구 결과를 구분한다.
+- 최종 사용자 확인은 대기 중이다. UPDATE/DELETE·정렬/페이지·JOIN·집계·UNION·migrate와 Phase2/3, 100만 건 성능·전원 차단 복구는 남아 있다. M1 Goal은 complete이며 M2 새 Goal은 생성하지 않았다.
+- 출처는 현재 사용자 선택과 진행 지시의 Master 요약, [M2 계획](implementation-m2.md), 실제 src/tests, 정식 commands/1~15, 독립 extra-results.json과 Master 데모 receipt다. 다음 행동은 문서 마감 영수증 확인 뒤 M2 전체 결과의 사용자 최종 검토다.
+
+## 2026-11-17 화요일 — M2 범위 선택과 계획 (Asia/Seoul, 당시 기록)
+
+- 목적은 완료한 M1 뒤 Phase 1의 다음 구현 범위와 검증 기준을 확정하는 것이다. 사용자 선택 1-A·2-A·3-B로 복수 행 INSERT·확장 WHERE·독립 VALUES, 단일 테이블 수식 컬럼·입력/출력 AS, 전체 M2 구현 뒤 사용자 검토 한 번을 기록했다.
+- Planner 제안과 Reviewer_QA의 설계 검토를 반영했다. 문장 전체 append/복원, 정적 이름·타입 검사와 NULL 3값 논리, 별칭의 입력 범위와 출력 이름 유일성, NULL 전용 VALUES 결과 메타데이터를 명시했다. 새 사용자 선택은 검토에서 발생하지 않았다.
+- [M2 계획](implementation-m2.md)에 구현 순서·5개 책임의 변경 경계·성공/오류 GWT·M1 회귀·독립 QA·마감과 최종 사용자 확인 조건을 정리했다. M1 하네스 DONE과 Goal complete는 Master 확인을 출처로 반영했다.
+- 현재 M2는 계획 문서화 상태다. 실제 C 구현·기능 시험·성능 측정은 미실행이며 새 Goal을 생성하지 않았다. 다음 행동은 사용자 후속 지시로 구현 착수를 연결하는 것이다. Wiki는 계약·실제 소스·선택 요약과 대조해 등록하고 문서 마감 검사를 수행한다.
+- 출처는 현재 사용자 선택, Master가 전달한 Reviewer_QA 승인, [SQL 계약](sql-contract.md), [저장 계약](storage-contract.md), 실제 src/sql.c·src/storage.c·include/minidb.h, [M1 결과](testing/m1-results.md)다. 개인 대화 본문·과거 승인 원장은 복제하지 않았다.
+
+
+## 2026-11-17 화요일 — 실제 M1 구현·독립 QA (Asia/Seoul, 당시 기록)
 
 - 목적·결정: 승인한 Windows C23 정적 엔진+얇은 CLI의 다섯 책임으로 첫 실행 구간을 구현했다. 기존 SQL/스키마/저장/CLI 계약을 유지하고 init·단일 INSERT·기본 SELECT·파일 저장/별도 프로세스 재시작·입출력·핵심 실패부터 연결했다.
 - 이유·핵심: 이벤트가 결과를 소유하고 append flush를 반영 경계로 삼는다. 반영 전 오류는 원래 길이 복원을 확인하고, 반영 후 정리·출력 오류는 성공/건수를 보존해 재실행·잘못된 롤백을 막는다. 입력은 문장별 소비하므로 뒤의 잘못된 바이트가 앞선 반영을 취소하지 않는다.
@@ -9,7 +101,7 @@
 - 검토·실패: M1 누적 반려2회는 Planner findings 반환 schema와 QA의 M1-QA-001이다. Master 재분석 후 해결했다. 별도 bootstrap 반려2회 및 운영 모의65/61개 검사와 혼합하지 않는다.
 - 문서: README 재현 명령·스키마/SQL 예제, HANDOFF, 설정/대기/도구/라이선스/하네스·Wiki 및 DBMS-001/M1 결과를 실제 원문/영수증과 대조했다. 실제 21-finish exit 0으로 Graphify 갱신·Wiki changed_sources=[]/page_changed=false를 확인했다. vendor 부분 추출·헤더 no-symbol 경고는 한계로 보존한다. 결과 문서화 뒤 재등록/최신 finish를 수행하며 최종 영수증을 따른다.
 - 미완료·한계: 전체 204개 GWT 통과가 아니다. P1-SQL-001 전체와 명시한 부분 검사만 대응한다. 나머지 SQL·migrate·Phase2/3, 100만 건 성능·전원 차단 복구는 남아 있다. 시작 행 적재/이차 시간 ID 중복 검사·선형 SELECT를 사용한다.
-- 다음 행동: 최종 사용자 확인 후 해당 M1 run을 완료한다. 이후 기존 계약의 후속 Phase1 증분 계획에서 새 선택이 필요한 사항만 사용자와 상의한다. Goal은 명시 유지됐지만 도구 상태는 usageLimited로 확인됐으며 active/complete로 바꾸지 않았다.
+- 완료·다음 행동: 2026-11-17 사용자가 M1 완료를 명시 승인했다. 승인된 Git 설정·인수인계 변경을 보존하고 검증 당시 문서 해시를 대조한 뒤 정상 pause/resume/finish 절차로 하네스 DONE을 확인했다. 완료 문서는 별도 유지보수로 Wiki·마감 검사를 수행한다. Goal 최종 갱신은 Master가 수행하며 후속 Phase1 증분 범위는 사용자와 상의한다.
 - 출처: [M1 실제 결과](testing/m1-results.md), [DBMS-001](testing/records/DBMS-001.md), 실제 src/include/tests와 tools lock, 정식 run commands/1~20 및 Reviewer2 추가 결과, Master의 승인·Goal 상태 요약. 개인 원장/대화 본문은 복제하지 않았다. 커밋·게시·추가 과금은 수행하지 않았다.
 
 아래 항목은 당시 시점의 과거 기록이다. 현재 실행 상태는 위 최신 항목과 M1 결과를 우선한다.

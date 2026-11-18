@@ -36,7 +36,7 @@ Master가 `reject`를 호출할 때는 반려 이유·수정 근거와 `--comple
 
 구현 언어 C, 표준 C23, 실행 환경 Windows 네이티브는 확정했다. 공식 LTS 우선, 없는 경우 최신 안정판 버전 고정 정책과 cmocka·CTest 테스트 구성 방향을 채택했다. 고정 도구 설치·특정 C23 실행과 실제 테스트 연결을 완료했다. 구성은 `tools/agent-harness/checks.json`의 red/green/regression/build 명령을 문자열 배열로 지정한다. `{python}`은 현재 Python 실행 파일로 치환한다. build는 실제 C 컴파일·링크 성공을 확인한다. 미설정 명령은 오류이며 운영 도구 검사를 DBMS 기능 검사로 대체하지 않는다.
 
-구현과 검증에는 실제 기능 Red, 최신 소스의 회귀 검사와 빌드, 종료 코드·실행 단계·actor·로그/보고서 해시 확인이 필요하다. Reviewer_QA는 자신의 단계에서 새로 검사하며 구현자의 결과만 재사용해 통과 처리하지 않는다. 최신 코드를 빌드한 뒤 테스트한다는 조건도 실제 검사 명령과 순서에 반영한다.
+기본 strict 구현에는 실제 기능 Red가 필요하며 slim-v1의 Red 조건은 아래 명시적 계약을 따른다. 모든 구현과 검증에는 최신 소스의 회귀 검사와 빌드, 종료 코드·실행 단계·actor·로그/보고서 해시 확인이 필요하다. Reviewer_QA는 자신의 단계에서 새로 검사하며 구현자의 결과만 재사용해 통과 처리하지 않는다. 최신 코드를 빌드한 뒤 테스트한다는 조건도 실제 검사 명령과 순서에 반영한다.
 
 테스트 어댑터는 `AGENT_HARNESS_RESULT_FILE`에 새 JSON을 쓰고 `config.metadata.harnessRunId`를 `AGENT_HARNESS_RUN_ID`와 맞춰야 한다. `suites[].specs[]`의 title에는 승인한 테스트 이름, tests[].expectedStatus에는 passed, results[].status에는 실제 결과를 기록한다. skipped·실패·누락·오래된 보고서는 통과가 아니다. 이 로컬 호환 형식은 Playwright 설치를 요구하지 않는다. Mini React 전용 M-01~M-07 지표는 기본 비활성화 상태다.
 
@@ -54,4 +54,16 @@ DBMS 기능 범위와 단계별 재사용 요구사항은 [요구사항](../requ
 
 유지보수 모의 검사는 작성자65·독립 reviewer61개 PASS였고 별도 bootstrap 반려2회를 해결했다. 실제 DBMS run m1-native-20261117은 native Planner·Implementer·Reviewer_QA·Knowledge Manager가 배정돼 진행했으며 최종 M1 코드/독립 QA 결과는 [실행 기록](../testing/m1-results.md)을 따른다. 이 run 반려는 Planner 반환 schema와 CLI stdout 결함으로 누적2회이며 해결했다. 다음 세 번째는 사용자 보고 관문이다.
 
-문서·Wiki/finish 뒤 Master가 결과를 인수해 USER_REVIEW로 이동하고 실제 사용자 확인을 받아야 DONE이다. 현재 사용자 확인을 이미 받은 것으로 기록하지 않는다. Goal 유지 지시와 런타임 usageLimited 상태도 구분한다.
+문서 마감의 내용·순서·영향 검사와 기계 근거 참조는 [단일 문서 마감 정책](agent-workflow.md#문서-마감)을 따른다. 그 마감 뒤 Master가 결과를 인수해 USER_REVIEW로 이동하고 실제 사용자 확인을 받아야 DONE이다. 2026-11-17 사용자가 M1 완료를 명시 승인했고 정상 pause/resume/finish 절차로 해당 run DONE을 확인했다. 완료 후 문서 유지보수에도 같은 문서 마감 정책을 적용하며 Goal 최종 갱신은 Master가 수행한다.
+
+## 명시적 slim-v1 계약
+
+Master의 일반 CLI 호출은 `--run <id> --summary <명령>`으로 짧은 상태를 출력한다. 옵션이 없으면 기존 전체 JSON을 유지하며 원장·영수증·로그·보고서는 축약하지 않는다. dispatch와 verify-packet은 전달 원문을 유지한다.
+
+기존 run과 workflow_policy 없는 계약은 strict 관문을 유지한다. 새 구현 계약만 `workflow_policy: "slim-v1"`과 `red_policy`의 required·reason·risk_flags를 명시할 수 있다. bugfix·storage_atomicity·data_structure_invariant·overflow·concurrency·ownership·harness_evidence는 실제 Red가 필수다. 나머지는 Red 생략 사유를 기록한다.
+
+slim-v1 계약의 선택 `result_path`는 knowledge_paths에 포함한 정확한 docs Markdown 경로로 증분 결과를 모은다. Wiki·제어 파일은 사용할 수 없다. 요구사항 ID·검증·한계를 그 결과에 남기며 기본 strict의 요구사항별 record 경로와 finish/산출물 해시 검증은 유지한다.
+
+`run-check targeted|red --tests <승인된 정확한 이름...>`은 중간 근거다. 구현 인수와 독립 QA에는 각각 새 configure/build/전체 CTest를 수행한 regression 하나가 필요하다. 보고서의 run·phase·actor·source·전체 범위·성공한 build 정보와 로그/보고서 해시를 대조한다. 별도 green/build 영수증을 만들어 채우지 않는다.
+
+Master의 `amend-test-scope --contract <JSON>`은 approval_ref·contract_ref·reason·test_paths·기존 required_tests를 기록한다. 기존 정확한 테스트 파일의 승인된 기대값 정렬만 허용하며 의미 보존은 Master와 독립 검토가 판단한다. 활성 Implementer는 completion_ref의 actor_id·completion으로 Master의 완료 관측을 기록한 후 해제한다. 검사 근거를 무효화하고 다시 prepare하며 누적 반려 횟수는 보존한다. 삭제·기대값 약화·새 의미·제품 파일 변경은 이 경로로 승인하지 않는다.
