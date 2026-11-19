@@ -493,7 +493,7 @@ class SlimFlowTest(unittest.TestCase):
         def run(command, **kwargs):
             self.last_env = kwargs['env']
             report = {'config': {'metadata': dict(harnessRunId=self.h.run_id,
-                workflowPolicy='slim-v1', nodeId='IMPLEMENT', actorId=self.h.active_packet('implementer')[2]['actor_id'],
+                workflowPolicy='slim-v1', nodeId=kwargs['env']['AGENT_HARNESS_NODE_ID'], actorId=kwargs['env']['AGENT_HARNESS_ACTOR_ID'],
                 sourceDigest=self.h.source_digest(), testScope='full', requestedTests=['text test'],
                 build={'passed': True, 'configure_exit_code': 0, 'compile_exit_code': 0,
                        'directory': str(self.root / '.cache/build'), 'cache_reused': False}) | metadata},
@@ -685,6 +685,143 @@ class SlimFlowTest(unittest.TestCase):
         state = json.loads(self.h.state_file.read_text(encoding='utf-8'))
         self.assertIn('baseline', state)
         self.assertEqual(state['test_scope_amendments'][0]['completion_ref']['actor_id'], actor)
+
+
+class FinalOnceFlowTest(unittest.TestCase):
+    setUp = FlowTest.setUp
+    bind = FlowTest.bind
+    planned = FlowTest.planned
+    slim = SlimFlowTest.slim
+    regression = SlimFlowTest.regression
+
+    def select_policy(self):
+        self.slim()
+        actor = self.h.active_packet('implementer')[2]['actor_id']
+        active = self.h.state['active']
+        packet = self.h.active_packet('implementer')[2]
+        result = {key: packet[key] for key in ('run_id', 'node_id', 'role', 'actor_id', 'attempt', 'input_digest', 'source_digest')}
+        result.update(status='ENV_ERROR', findings=[], evidence_refs=[], requested_decisions=[])
+        self.h.accept('implementer', result, dict(runtime_actor_id=actor, delivery_message=active['dispatch']['start_message'], completion='observed complete'))
+        self.h.set_regression_policy('latest explicit user request', 'final-once-v1')
+        self.h.resume('user', 'final once policy adopted')
+        self.h.prepare('implementer', 3)
+        bound = self.h.dispatch('implementer', actor, 'synthetic READY handshake',
+                               {'agent_id': actor, 'response': {'agent_id': actor}, 'fixture': True})
+        packet = self.h.active_packet('implementer')[2]
+        result = {key: packet[key] for key in ('run_id', 'node_id', 'role', 'actor_id', 'attempt', 'input_digest', 'source_digest')}
+        result.update(status='PASS', findings=[], evidence_refs=[], requested_decisions=[])
+        observation = dict(runtime_actor_id=actor, delivery_message=bound['start_message'], completion='synthetic complete')
+        return result, observation
+
+    def test_final_once_requires_opt_in_and_idle_implementation(self):
+        self.slim()
+        with self.assertRaises(HarnessError):
+            self.h.set_regression_policy('user', 'final-once-v1')
+        self.assertIsNotNone(self.h.state['active'])
+        self.h.state['active'] = None
+        for user, policy in (('', 'final-once-v1'), ('user', 'unknown')):
+            with self.assertRaises(HarnessError):
+                self.h.set_regression_policy(user, policy)
+        self.h.state['phase'] = 'VERIFY'
+        with self.assertRaises(HarnessError):
+            self.h.set_regression_policy('user', 'final-once-v1')
+
+    def test_final_once_accepts_fresh_targeted_and_blocks_implement_regression(self):
+        result, observation = self.select_policy()
+        packet = self.h.active_packet('implementer')[2]
+        self.assertEqual(packet['role_profile']['instructions'], packet['task'])
+        self.assertIn('Master only; no .private access, peer messaging or further delegation.', packet['task'])
+        for name in ('green', 'regression'):
+            with self.assertRaisesRegex(HarnessError, 'not allowed'):
+                self.h.run_check(name)
+        for name in ('red', 'targeted'):
+            with self.assertRaisesRegex(HarnessError, 'exact selected tests'):
+                self.h.run_check(name)
+        self.regression(check='targeted', selected=['text test'], testScope='selected')
+        self.h.accept('implementer', result, observation)
+        self.assertEqual(self.h.state['phase'], 'VERIFY')
+
+    def test_final_once_rejects_invalid_targeted_evidence(self):
+        self.select_policy()
+        for metadata in ({'actorId': 'wrong'}, {'nodeId': 'VERIFY'}, {'sourceDigest': 'stale'},
+                         {'build': {'passed': False}}):
+            with self.subTest(metadata=metadata):
+                self.assertFalse(self.regression(check='targeted', selected=['text test'],
+                                                 testScope='selected', **metadata)['passed'])
+                with self.assertRaises(HarnessError):
+                    self.h.implementation_ready()
+        self.regression(check='targeted', selected=['text test'], testScope='selected')
+        (self.root / 'impl.cpp').write_text('later change', encoding='utf-8')
+        with self.assertRaisesRegex(HarnessError, 'older source'):
+            self.h.implementation_ready()
+
+    def test_final_once_skipped_or_failed_targeted_is_rejected(self):
+        self.select_policy()
+        for status in ('skipped', 'failed'):
+            def transform(report):
+                report['suites'][0]['specs'][0]['tests'][0]['results'][0]['status'] = status
+            self.assertFalse(self.regression(check='targeted', selected=['text test'],
+                                             testScope='selected', transform=transform)['passed'])
+            with self.assertRaises(HarnessError):
+                self.h.implementation_ready()
+
+    def test_final_once_preserves_confirmed_red_and_rejections(self):
+        self.slim()
+        self.h.state['red_policy']['required'] = True
+        def fail(report):
+            report['suites'][0]['specs'][0]['tests'][0]['results'][0]['status'] = 'failed'
+        self.regression(check='red', exit_code=1, transform=fail)
+        self.h.confirm_red('actual fixture assertion', ['text test'])
+        before = dict(self.h.state['red_confirmation'])
+        self.h.state['rejection_count'] = 2
+        actor = self.h.active_packet('implementer')[2]['actor_id']
+        active = self.h.state['active']
+        packet = self.h.active_packet('implementer')[2]
+        result = {key: packet[key] for key in ('run_id', 'node_id', 'role', 'actor_id', 'attempt', 'input_digest', 'source_digest')}
+        result.update(status='ENV_ERROR', findings=[], evidence_refs=[], requested_decisions=[])
+        self.h.accept('implementer', result, dict(runtime_actor_id=actor, delivery_message=active['dispatch']['start_message'], completion='done'))
+        self.h.set_regression_policy('user', 'final-once-v1')
+        self.h.resume('user', 'adopt policy')
+        self.assertEqual(self.h.state['red_confirmation'], before)
+        self.assertEqual(self.h.state['rejection_count'], 2)
+        self.assertEqual(set(self.h.state['checks']), {'red'})
+        self.assertIsNone(self.h.state['active'])
+
+    def test_final_once_normal_cli_records_explicit_user_selection(self):
+        from agent_harness import main, write_json
+        self.planned()
+        self.h.state.update(workflow_policy='slim-v1',
+                            red_policy={'required': False, 'reason': 'fixture', 'risk_flags': []})
+        self.h.save('unit_fixture')
+        contract = self.root / '.cache/policy.json'
+        write_json(contract, dict(user_ref='latest explicit user instruction', regression_policy='final-once-v1'))
+        output = io.StringIO()
+        with patch('agent_harness.__file__', str(self.root / 'scripts/agent_harness.py')), \
+                patch('sys.argv', ['agent_harness.py', '--run', 'run-1', '--summary', 'set-regression-policy', '--contract', str(contract)]), \
+                redirect_stdout(output):
+            self.assertEqual(main(), 0)
+        reopened = Harness(self.root, 'run-1')
+        self.assertTrue(reopened.final_once)
+        self.assertEqual(reopened.state['regression_policy_change']['user_ref'], 'latest explicit user instruction')
+        self.assertEqual(json.loads(output.getvalue())['phase'], 'IMPLEMENT')
+
+    def test_final_once_reviewer_still_requires_own_full_receipt(self):
+        result, observation = self.select_policy()
+        self.regression(check='targeted', selected=['text test'], testScope='selected')
+        self.h.accept('implementer', result, observation)
+        result, observation = self.bind('reviewer_qa')
+        packet = self.h.active_packet('reviewer_qa')[2]
+        self.assertEqual(packet['role_profile']['instructions'], packet['task'])
+        self.assertIn('Master only; no .private access, peer messaging or further delegation.', packet['task'])
+        result.update(status='APPROVED', review={'status': 'APPROVED'}, qa={'status': 'PASS'})
+        with self.assertRaisesRegex(HarnessError, 'missing check: regression'):
+            self.h.accept('reviewer_qa', result, observation)
+        self.assertFalse(self.regression(testScope='selected')['passed'])
+        with self.assertRaises(HarnessError):
+            self.h.accept('reviewer_qa', result, observation)
+        self.regression()
+        self.h.accept('reviewer_qa', result, observation)
+        self.assertEqual(self.h.state['phase'], 'KNOWLEDGE')
 
 
 class DesignFlowTest(unittest.TestCase):

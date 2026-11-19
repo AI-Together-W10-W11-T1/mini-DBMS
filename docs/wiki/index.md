@@ -1,13 +1,35 @@
 # mini-DBMS Wiki
 
-2026-11-18 수요일(Asia/Seoul). compact 후 [HANDOFF](../../HANDOFF.md)를 먼저 읽는다. 검증한 결정·실패·한계는 아래 원본으로 연결하며 당시 실행 이력을 복사하지 않는다.
+2026-11-19 목요일(Asia/Seoul). compact 후 [HANDOFF](../../HANDOFF.md)를 먼저 읽는다. 검증한 결정·실패·한계는 아래 원본으로 연결하며 당시 실행 이력을 복사하지 않는다.
+
+학습은 [구현 완료 기준 학습 가이드](../study-guide.md)를 따른다. Phase 1~3의 선택과 코드 질문, M13 동시성·협력 취소와 M14 측정·검증을 정리했으며 실제 완료 상태는 각 결과 원문과 대조했다.
+
+발표는 [README의 2분 구성](../../README.md#발표--파일에서-작은-rdbms로--2분)과 [시연 결과](../testing/presentation-results.md)를 따른다. 작은 표본의 CLI 전체 실행과 파일 작업 비교를100만 행 warm 엔진의421배와 구분하고, 동일 행·반복 ID·실제5초 이내 실행을 원문 대조했다.
 
 ## 문서 마감 단일 정책
 
 - 검증한 새 결정은 [작업 흐름의 문서 마감 절](../workflow/agent-workflow.md#문서-마감)에 모았다. 상세 결과1회·짧은 HANDOFF·실행 변경 시 README·검증한 새 지식의 Wiki·본문 확정 후 일괄 등록/finish·영향 검사·JSON 기계 근거 참조를 적용한다. AGENTS와 하네스·개발 도구의 연결 원문을 대조했다.
 - 실제 작성자/독립 검증·수동 유지보수 경로·한계와 최종 사용자 완료 승인은 [단일 정책 결과](../testing/document-close-results.md)를 따른다. 기존 역할·독립 회귀·최신성·사용자 확인 관문을 유지한다.
 
-## 현재 M11 대량 생성·비교
+## 현재 M14 측정 도구·큐 검증
+
+- 사용자 A와 로컬 TCP 실행 승인에 따라 실제 C SDK 부하·직접 큐 계측·메모리 관측을 구현했다. 독립 QA·최종198/198 회귀1회 PASS, 사용자 완료 승인·정상 하네스 DONE을 확인했다. 선택 측정·반려1회와 수정·호출 귀속·한계는 [단일 M14 결과](../testing/m14-results.md), GWT8은 [계약](../implementation-m14.md)을 따른다.
+- [서버](../../src/server.c)의 bounded buffer·queue lock 발행·join 후 저장, [부하 도구](../../tools/bench_m14.c)의 연결별 SDK·warmup barrier·확정 marker·실제 memory 시각과 [검증기](../../scripts/m14_benchmark.py)/[시험](../../tests/m14_benchmark.py)의 원문을 대조했다. 큐 내부 합계만으로 누락을 찾을 수 없으므로 요청 그룹·단계·종료 결과를 SDK 결과와 교차 대조한다. 빈 trace·균형 삭제·측정창 이동 거절과 SQL 뒤 EOF busy 양성 대조를 확인했다.
+- QPC 역행 무효 원본을 보존하고 동일 조건 재측정 자료와 구분했다. 원래 실행 해시를 유지하며 강화한 검증기 해시는 따로 기록한다. 큐 대기는 gate 대기가 아니며 메모리 표본 최대를 절대 peak로 보고하지 않는다. 문서 마감의 기계 근거는 [M14 Knowledge JSON](../../.cache/m14/knowledge-result.json)을 따른다.
+
+## 보존한 M13 공유 읽기·협력 취소 구현
+
+- 사용자 전체A·후속 실구현 승인으로 DB gate·writer 대기 admission·기본0/양수 SQL 협력 기한·disconnect/shutdown 취소를 구현했다. 실제 검사·두 QA 수정·Red 정정·환경·미검증 한계는 [단일 M13 결과](../testing/m13-results.md), GWT14는 [설계 계약](../implementation-m13.md)을 따른다. 사용자 완료 승인·정상 하네스 DONE을 확인했다.
+- [엔진](../../src/engine.c)·[SQL](../../src/sql.c)·[저장](../../src/storage.c)·[서버](../../src/server.c)·[공개 API](../../include/minidb.h)·프로토콜/SDK와 M13 시험을 대조했다. health 재확인·공유 결과 소유권·marker 보호구간·반영 성공 보존·busy 완료 수명과 페이지 취소 정리/누적 budget의 수정 근거를 확인했다.
+- 최신 사용자 비용 지시의 final-once-v1은 작성자 영향 검사 후 독립 QA의 최종 전체 회귀1회를 요구한다. [하네스](../workflow/agent-harness.md)·[문서 마감](../workflow/agent-workflow.md#문서-마감)·[도구](../workflow/dev-tools.md)·[AGENTS](../../AGENTS.md)와 실제 정책 구현/운영 시험을 대조했다. Python 모의 운영 검사와 제품 C 검사를 구분한다.
+
+## 보존한 M12 서버·SDK 구현
+
+- 사용자 all-A·초기값과 후속 구현 승인으로 서버·정적 C SDK·SDK CLI를 구현했다. 작성자/독립176/176·skip0, 품질 반려1회·두 지적 해결·실제 Red 정정·환경·한계는 [단일 M12 결과](../testing/m12-results.md), GWT18은 [설계 계약](../implementation-m12.md)을 따른다. 사용자 완료 승인·정상 하네스 DONE을 확인했다.
+- reactor socket 소유권·문장별 FIFO·직렬 엔진·health 재검사·stale 완료 수명과 SDK의 엄격한 재조립을 원문 대조했다. 추가 fake-peer에서 발견한 canonical 숫자/양의 SQL 위치·diagnostic 도메인 누락을 수정하고 독립 재검토했다. 소스는 [서버](../../src/server.c)·[SDK](../../src/client.c)·[프로토콜](../../src/protocol.c)·[엔진](../../src/engine.c), 실행 입구는 [README](../../README.md)를 따른다.
+- SQL 결과 전체 materialization·직렬화·SDK 재조립 메모리와 wire cap을 구분한다. M13 병렬 읽기·협력 취소, 기능 완성 뒤 초기값 측정·전체 구현 마감 뒤 시작 비용 진단 후보는 [결정 원본](../pending-decisions.md)에 보존한다.
+
+## 보존한 M11 대량 생성·비교
 
 - 사용자1A/2A의 결정적 SQL·CLI10000행 배치·공개 엔진 API QPC 비교를 구현하고10k/100k/1m 전 필드를 검증했다. GWT8·작성자/독립158개·자체137행·실제 손상 거절·측정값·한계는 [단일 M11 결과](../testing/m11-results.md)를 따른다. 사용자 완료 승인·정상 하네스 DONE을 확인했다.
 - scripts/m11_benchmark.py·tools/bench_m11.c·tests/m11_benchmark.py와 CMakeLists.txt·scripts/c_checks.py, 승인 계약·결과 JSON을 대조했다. Debug·warm SQL 조회·100만 실제 실행1회, 측정 후 Python 숫자/bool 검증 엄격화와 native 해시 보존을 확인했다. 시작 비용 profiling·최적화는 후속 사용자 협의 범위다.
@@ -61,4 +83,4 @@
 - [SQL](../sql-contract.md)·[스키마](../schema-contract.md)·[저장](../storage-contract.md)·[CLI](../cli-contract.md)가 의미의 원본이다. [요구사항](../requirements.md)·[Phase 설계](../phase-design-policy.md)에 따라 후속 범위를 선택한다.
 - 설치·고정 도구·서명 미검증 한계는 [도구 제안](../toolchain-proposal.md)·[라이선스](../third-party-licenses.md)·[설정 상태](../setup-status.md)에 보존한다. [README](../../README.md)는 재현 예제, [남은 작업](../pending-decisions.md)·[작업 기록](../work-log.md)은 다음 행동과 역사 원본이다.
 
-기존 출처 목록을 보존하고 M11 결과·도구·시험을 추가 등록했다. 변경 원문과 문서를 대조했다. 문서 마감의 실제 관측·해시는 [M11 Knowledge JSON](../../.cache/m11/knowledge-result.json)을 따른다.
+기존 출처 목록을 보존하고 M14 결과·계약·구현·시험과 최신 운영 정책 원문을 대조해 추가/갱신 등록했다. 이번 문서 마감의 기계 근거는 [M14 Knowledge JSON](../../.cache/m14/knowledge-result.json)을 따른다.

@@ -4,7 +4,9 @@
 #include <stddef.h>
 #include <stdint.h>
 
-/* 경로는 UTF-8, 값과 결과의 소유권은 이벤트에 있다. 같은 DB 호출은 직렬화한다. */
+/* 경로는 UTF-8, 값과 결과의 소유권은 이벤트에 있다.
+ * 서로 다른 요청의 병렬 next를 지원한다. 같은 요청의 next/close는 직렬 호출한다.
+ * 모든 요청 종료 뒤 DB를 닫는다. */
 typedef struct MdDb MdDb;
 typedef struct MdRequest MdRequest;
 typedef enum { MD_NULL, MD_INT64, MD_TEXT } MdType;
@@ -73,6 +75,18 @@ typedef struct {
     void *context;
 } MdInput;
 typedef enum { MD_NEXT_RESULT, MD_NEXT_EOF, MD_NEXT_STOP } MdNext;
+
+typedef enum { MD_CANCEL_NONE, MD_CANCEL_DISCONNECT, MD_CANCEL_SHUTDOWN } MdCancelReason;
+typedef MdCancelReason (*MdCancel)(void *context);
+typedef struct {
+    /* 밀리초 단위 0은 비활성이다. 양수 상한은 INT64_MAX다.
+     * lock은 문장 내 gate 대기의 합계, SQL 시계는 최종 gate 뒤 시작한다. */
+    uint64_t lock_timeout_ms, sql_timeout_ms;
+    /* 관찰 전용 callback은 빠르게 반환하며 엔진을 재진입하지 않는다. */
+    MdCancel cancel;
+    /* callback과 context는 next_ex 반환까지 유효해야 한다. */
+    void *context;
+} MdExecutionOptions;
 typedef enum { MD_INIT, MD_MIGRATE } MdOperation;
 typedef struct {
     MdOperation operation;
@@ -83,6 +97,7 @@ bool md_open(const char *schema_dir, const char *data_dir, MdDb **out, MdDiagnos
 void md_close(MdDb *db);
 bool md_request_open(MdDb *db, MdInput input, MdRequest **out, MdDiagnostic *diagnostic);
 MdNext md_request_next(MdRequest *request, MdEvent *event);
+MdNext md_request_next_ex(MdRequest *request, const MdExecutionOptions *options, MdEvent *event);
 void md_request_close(MdRequest *request);
 bool md_operate(const MdOperationOptions *options, MdEvent *event);
 /* 이벤트는 DB/요청 종료 뒤에도 유효하다. 0 초기화 이벤트도 해제 가능하다. */

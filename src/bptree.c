@@ -2,6 +2,10 @@
 #include <stdlib.h>
 #include <string.h>
 #include <assert.h>
+#include <stdatomic.h>
+#ifdef MINIDB_ENGINE
+extern const char *md_execution_check(void);
+#endif
 
 static_assert(MD_BT_CHILDREN == 4 || MD_BT_CHILDREN == 32);
 /* 리프 깊이 d>=1이면 최소 분기 2와 리프 최소 2개로 키가 2^(d+1)개 필요하다.
@@ -10,9 +14,9 @@ static_assert(MD_BT_CHILDREN == 4 || MD_BT_CHILDREN == 32);
 #define MD_BT_HEIGHT 64
 
 #ifdef MD_BT_TEST
-static size_t allocation_calls;
-static size_t allocation_failure;
-static size_t live_nodes;
+static thread_local size_t allocation_calls;
+static thread_local size_t allocation_failure;
+static atomic_size_t live_nodes;
 void md_bt_test_fail_at(size_t allocation) {
     allocation_calls = 0;
     allocation_failure = allocation;
@@ -22,6 +26,10 @@ size_t md_bt_test_live(void) { return live_nodes; }
 #endif
 
 static MdBtNode *new_node(void) {
+#ifdef MINIDB_ENGINE
+    if (md_execution_check())
+        return NULL;
+#endif
 #ifdef MD_BT_TEST
     allocation_calls++;
     if (allocation_failure && allocation_calls == allocation_failure) return NULL;

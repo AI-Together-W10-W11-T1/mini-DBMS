@@ -18,6 +18,11 @@ typedef struct {
     MdBptree index;
 } MdTable;
 struct MdDb {
+    /* 0 초기화 SRW/CV는 stack fixture와 실제 DB 모두에서 유효하다. */
+    SRWLOCK gate;
+    CONDITION_VARIABLE changed;
+    size_t readers, waiting_writers;
+    bool writer;
     MdHealth health;
     MdTable *tables;
     size_t count;
@@ -32,7 +37,23 @@ struct MdRequest {
     size_t used, cursor;
     uint64_t statement, offset, line, column;
     bool previous_cr, started;
+    MdExecutionOptions execution;
+    uint64_t lock_wait_ms, sql_start;
+    bool sql_running, protected_commit;
+    const char *cancel_code, *cancel_stage;
 };
+bool md_gate_enter(MdRequest *, bool);
+bool md_request_create(MdDb *, MdInput, MdRequest **, MdDiagnostic *);
+void md_gate_leave(MdDb *, bool);
+const char *md_execution_check(void);
+void md_execution_protect(void);
+void md_execution_point(const char *);
+uint64_t md_execution_now(void);
+#ifdef MINIDB_TEST_FAULTS
+typedef void (*MdTestExecutionHook)(const char *, void *);
+void md_test_execution_hook(MdTestExecutionHook, void *);
+void md_test_execution_clock(uint64_t (*)(void *), void *);
+#endif
 void md_diag(MdDiagnostic *, const char *, const char *, const char *, const char *, const char *);
 char *md_copy(const char *, size_t);
 bool md_equal(const char *, const char *);

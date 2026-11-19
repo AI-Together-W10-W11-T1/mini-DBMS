@@ -36,7 +36,7 @@ Master가 `reject`를 호출할 때는 반려 이유·수정 근거와 `--comple
 
 구현 언어 C, 표준 C23, 실행 환경 Windows 네이티브는 확정했다. 공식 LTS 우선, 없는 경우 최신 안정판 버전 고정 정책과 cmocka·CTest 테스트 구성 방향을 채택했다. 고정 도구 설치·특정 C23 실행과 실제 테스트 연결을 완료했다. 구성은 `tools/agent-harness/checks.json`의 red/green/regression/build 명령을 문자열 배열로 지정한다. `{python}`은 현재 Python 실행 파일로 치환한다. build는 실제 C 컴파일·링크 성공을 확인한다. 미설정 명령은 오류이며 운영 도구 검사를 DBMS 기능 검사로 대체하지 않는다.
 
-기본 strict 구현에는 실제 기능 Red가 필요하며 slim-v1의 Red 조건은 아래 명시적 계약을 따른다. 모든 구현과 검증에는 최신 소스의 회귀 검사와 빌드, 종료 코드·실행 단계·actor·로그/보고서 해시 확인이 필요하다. Reviewer_QA는 자신의 단계에서 새로 검사하며 구현자의 결과만 재사용해 통과 처리하지 않는다. 최신 코드를 빌드한 뒤 테스트한다는 조건도 실제 검사 명령과 순서에 반영한다.
+기본 strict 구현에는 실제 기능 Red가 필요하며 slim-v1의 Red 조건은 아래 명시적 계약을 따른다. 검사에는 최신 소스와 실제 빌드, 종료 코드·실행 단계·actor·로그/보고서 해시 확인이 필요하다. final-once-v1의 작성자 인수는 최신 targeted를 사용하고 독립 QA가 최종 전체 회귀를 수행한다. Reviewer_QA는 자신의 단계에서 새로 검사하며 구현자의 결과만 재사용해 통과 처리하지 않는다. 최신 코드를 빌드한 뒤 테스트한다는 조건도 실제 검사 명령과 순서에 반영한다.
 
 테스트 어댑터는 `AGENT_HARNESS_RESULT_FILE`에 새 JSON을 쓰고 `config.metadata.harnessRunId`를 `AGENT_HARNESS_RUN_ID`와 맞춰야 한다. `suites[].specs[]`의 title에는 승인한 테스트 이름, tests[].expectedStatus에는 passed, results[].status에는 실제 결과를 기록한다. skipped·실패·누락·오래된 보고서는 통과가 아니다. 이 로컬 호환 형식은 Playwright 설치를 요구하지 않는다. Mini React 전용 M-01~M-07 지표는 기본 비활성화 상태다.
 
@@ -64,6 +64,16 @@ Master의 일반 CLI 호출은 `--run <id> --summary <명령>`으로 짧은 상�
 
 slim-v1 계약의 선택 `result_path`는 knowledge_paths에 포함한 정확한 docs Markdown 경로로 증분 결과를 모은다. Wiki·제어 파일은 사용할 수 없다. 요구사항 ID·검증·한계를 그 결과에 남기며 기본 strict의 요구사항별 record 경로와 finish/산출물 해시 검증은 유지한다.
 
-`run-check targeted|red --tests <승인된 정확한 이름...>`은 중간 근거다. 구현 인수와 독립 QA에는 각각 새 configure/build/전체 CTest를 수행한 regression 하나가 필요하다. 보고서의 run·phase·actor·source·전체 범위·성공한 build 정보와 로그/보고서 해시를 대조한다. 별도 green/build 영수증을 만들어 채우지 않는다.
+`run-check targeted|red --tests <승인된 정확한 이름...>`은 중간 근거다. final-once-v1을 선택하지 않은 기존 slim-v1의 구현 인수와 독립 QA에는 각각 새 configure/build/전체 CTest regression이 필요하다. 보고서의 run·phase·actor·source·전체 범위·성공한 build 정보와 로그/보고서 해시를 대조한다. 별도 green/build 영수증을 만들어 채우지 않는다.
 
 Master의 `amend-test-scope --contract <JSON>`은 approval_ref·contract_ref·reason·test_paths·기존 required_tests를 기록한다. 기존 정확한 테스트 파일의 승인된 기대값 정렬만 허용하며 의미 보존은 Master와 독립 검토가 판단한다. 활성 Implementer는 completion_ref의 actor_id·completion으로 Master의 완료 관측을 기록한 후 해제한다. 검사 근거를 무효화하고 다시 prepare하며 누적 반려 횟수는 보존한다. 삭제·기대값 약화·새 의미·제품 파일 변경은 이 경로로 승인하지 않는다.
+
+## 최종 구현 이후 전체 회귀
+
+2026-11-19 최신 사용자 지시에 따라 slim-v1 작업마다 Master가 최신 지시를 user_ref로 기록하고 `set-regression-policy --contract <JSON>`으로 `regression_policy` 값 `final-once-v1`을 명시 선택한다. 같은 지시의 재승인을 요구하지 않는다. 기존 strict와 과거 run의 검증 조건은 해당 정책을 선택할 때까지 유지한다.
+
+정책 선택은 활성 actor가 없는 IMPLEMENT 또는 environment 원인 NEEDS_DECISION이며 resume_phase가 IMPLEMENT인 상태에서 허용한다. 실제 완료 관측과 정상 결과 인수로 claim을 해제한다. 환경 재개에서는 확인된 기능 Red 영수증과 누적 반려를 보존하고 최신 영향 검사를 다시 수행한다. 기존 Red의 actor 검증을 유지한다.
+
+final-once-v1의 IMPLEMENT는 build·red·targeted를 허용한다. red와 targeted에는 승인한 정확한 선택 테스트 이름을 반드시 전달한다. 작성자의 최신 source·actor·IMPLEMENT와 실제 configure/build가 확인된 targeted 영수증으로 구현을 인수한다. VERIFY는 build·targeted·regression을 허용한다. 독립 Reviewer_QA가 읽기 전용 검토와 필요한 targeted 이후 모든 코드 수정이 끝난 최종 source에서 전체 regression을 한 번 수행한다. APPROVED는 자신의 VERIFY·actor·최신 source에 대한 전체 regression 영수증을 요구한다.
+
+전체 회귀 실패나 이후 수정으로 검사가 무효화되면 필요한 재검사를 수행한다. 재시도 횟수를 기계적으로 제한하지 않는다. 부분 검사를 최종 전체 회귀 근거로 사용하지 않는다.

@@ -37,7 +37,10 @@ CASES = ["M1-unit-event-lifetime", "M1-roundtrip", "M1-literals", "M1-stop-on-er
              "RESERVE-01", "LOOKUP-01", "LOOKUP-02", "LOOKUP-03", "UPDATE-01", "DELETE-01",
              "DELETE-02", "STORAGE-01", "RESTART-01", "MIGRATE-01"]],
          *["M11-"+name for name in ["GENERATE-01", "DECODE-01", "ORACLE-01", "BENCH-01",
-             "STATISTICS-01", "ARGUMENT-01", "OUTPUT-01", "REGRESSION-01"]]]
+             "STATISTICS-01", "ARGUMENT-01", "OUTPUT-01", "REGRESSION-01"]],
+         *["M12-"+name for name in ["WIRE-01","WIRE-02","CHUNK-01","CHUNK-02","SQL-01","SDK-01","POOL-01","QUEUE-01","HEALTH-01","OWN-01","DISCONNECT-01","STATE-01","LIMIT-01","CONFIG-01","TIME-01","SHUTDOWN-01","CLI-01","REGRESSION-01"]],
+         *["M13-"+name for name in ["READ-01","RW-01","WW-01","ADMIT-01","WAIT-01","CLASSIFY-01","HEALTH-01","TIME-01","LOOP-01","PREP-01","COMMIT-01","LIFE-01","WIRE-01","REGRESSION-01"]],
+         *["M14-"+name for name in ["SDK-01","QUEUE-01","STATISTICS-01","MIXED-01","FAILURE-01","MEMORY-01","OUTPUT-01","REGRESSION-01"]]]
 
 
 def tool(variable, relative):

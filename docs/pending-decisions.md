@@ -1,6 +1,8 @@
 # 남은 구현·선택·보류
 
-2026-11-18 수요일(Asia/Seoul). **M11 대량 생성·100만 행 비교 구현·독립 QA·사용자 완료 승인·정상 하네스 DONE 확인**이다. 선택·검사·측정·한계는 [단일 M11 결과](testing/m11-results.md), 재개는 [HANDOFF](../HANDOFF.md)를 따른다. 품질 반려0회다. M1~M10·workflow·문서 정책 유지보수의 사용자 완료 승인·DONE과 M1 Goal complete를 보존한다. 새 Goal은 없다.
+2026-11-19 목요일(Asia/Seoul). **M13 사용자 완료 승인·정상 하네스 DONE**을 확인했다. 실제 검사·반려1회/두 수정·한계는 [단일 M13 결과](testing/m13-results.md), GWT는 [M13 계약](implementation-m13.md), 재개는 [HANDOFF](../HANDOFF.md)를 따른다. M1~M12·workflow·문서 정책의 사용자 완료 승인·DONE과 M1 Goal complete를 보존한다. M13 완료 상태를 보존하며 새 Goal은 없다.
+
+M14 사용자 A·로컬 TCP 실행 승인에 따라 성능 측정 도구·직접 큐 계측을 구현하고 독립 QA·최종198/198 회귀1회를 통과했다. 사용자 완료 승인·정상 하네스 DONE을 확인했다. 실제37회 중 선택36개·반려1회와 수정·한계는 [단일 M14 결과](testing/m14-results.md), GWT8은 [M14 계약](implementation-m14.md)을 따른다.
 
 ## 이미 선택·연결한 것
 
@@ -8,7 +10,13 @@ Windows C23, cmocka/CTest, 고정 Clang/LLDB/CMake/Ninja와 yyjson, 정적 엔�
 
 ## 다음 단계
 
-사용자 지시로 Phase 1 전체204개 전수 감사는 생략·미실행이다. 기존 M7 무정렬 ALL 순서 관찰과 전원 손실·전수 fault 미검증을 보존한다. M10의 자동 ID·인덱스 통합 선택과 완료 상태는 [M10 계약](../.cache/m10/contract.json)·[결과](testing/m10-results.md)에 보존한다. M11 사용자1A/2A의 CLI 배치·공개 API 비교와100만 전 필드 검증은 [M11 계약](../.cache/m11/contract.json)·[결과](testing/m11-results.md)를 따른다. M11 완료 상태를 보존하고 Phase 3 상세 설계 또는 관측된 시작 비용 진단·최적화 중 다음 범위를 협의한다.
+사용자 지시로 Phase 1 전체204개 전수 감사는 생략·미실행이다. 기존 M7 무정렬 ALL 순서 관찰과 전원 손실·전수 fault 미검증을 보존한다. M10의 자동 ID·인덱스 통합 선택과 완료 상태는 [M10 계약](../.cache/m10/contract.json)·[결과](testing/m10-results.md)에 보존한다. M11 사용자1A/2A의 CLI 배치·공개 API 비교와100만 전 필드 검증은 [M11 계약](../.cache/m11/contract.json)·[결과](testing/m11-results.md)를 따른다. M11 완료 상태를 보존하고 최신 사용자 지시의 A 선택에 따라 Phase 3 상세 설계를 시작한다. 사용자는 B에 대해 “비정상적으로 느린 거라면 우리의 구현이 완전히 마감되고 나서 진행할 개선안으로 남겨줘”라고 지시했다. Debug 100만 행 DB open 118.711853초의 관측값은 보존하고, 전체 구현 마감 후 진단하여 비정상 여부·원인·개선 필요성을 판단할 후속 후보로 보류한다. 현재는 비정상 여부와 원인을 확정하지 않는다. 문서 유지보수의 실제 검사·해시는 [방향 기록 JSON](../.cache/phase3-direction/knowledge-result.json)을 따른다.
+
+### Phase 3 확정 방향과 다음 선택
+
+사용자 최종 all-A·초기값 선택의 설계 원본은 [M12 설계 계약·GWT](implementation-m12.md)다. 후속 구현 승인을 받아 서버·정적 C SDK·SDK CLI, reactor+SQL worker 풀·직렬 엔진, JSON 이벤트 바이트 청크·재조립을 구현했다. 실제 결정·검사·실패·한계는 [M12 결과](testing/m12-results.md)를 따른다. M13에 병렬 읽기·배타 쓰기·SQL 협력 취소를 연계한다.
+
+M12 실제 독립 review/qa·문서 검사는 [구현 실행 원장](../.cache/agent-harness/m12-native-20261118/)을 따른다. M13 사용자 전체A는 대기 writer의 새 reader 차단·기본0/양수 SQL 협력 기한·disconnect/shutdown 때 안전 지점 중단을 선택했다. 저장 보호구간의 정합성 완료를 유지한다. 후속 구현 승인으로 실제 병렬 읽기·배타 쓰기·협력 취소와 독립 QA를 마쳤다. 결정·검사·한계는 [M13 결과](testing/m13-results.md)를 따르며 사용자 완료 승인·정상 하네스 DONE을 확인했다. package registry·타언어 SDK·ODBC·ISO 정식 호환의 후속 보류와 기능·M13 완성 후 측정·초기값 조정 방향을 유지한다.
 
 | 항목 | 현재 상태와 필요한 행동 |
 |---|---|
@@ -25,8 +33,10 @@ Windows C23, cmocka/CTest, 고정 Clang/LLDB/CMake/Ninja와 yyjson, 정적 엔�
 | M9 최종 확인 | 독립 트리 구현·독립 QA 완료, 작성자/독립135/135·양쪽 용량20000키 probe PASS. 사용자 완료 승인·정상 하네스 DONE 확인. |
 | M10 최종 확인 | 엔진 통합·독립 QA 완료, 작성자/독립150/150·독립 CLI26개 PASS. 사용자 완료 승인·정상 하네스 DONE 확인. |
 | M11 최종 확인 | 사용자1A/2A의 생성·CLI10000행 배치·공개 API QPC 비교,10k/100k/1m 전 필드 검증·작성자/독립158/158 PASS. 사용자 완료 승인·정상 하네스 DONE 확인. [결과](testing/m11-results.md). |
-| Phase 2 |100만 행 비교 구현·독립 QA 완료. Debug·warm·실행1회 조건과 시작 비용 미진단을 결과에 보존. 다음 선택은 Phase 3 설계 또는 시작 비용 profiling·최적화이며 사용자와 범위를 협의한다. |
-| Phase 3 | 기존 엔진 API·Thread Pool. 프로토콜·요청/응답·풀/큐·내부 동기화는 해당 Phase에서 선택. |
+| Phase 2 |100만 행 비교 구현·독립 QA 완료. Debug·warm·실행1회 조건과 시작 비용 미진단을 결과에 보존. 사용자 A 선택으로 다음은 Phase 3 상세 설계 시작이다. 시작 비용 진단·개선은 전체 구현 마감 후 판단할 후속 후보로 보류한다. |
+| M12 최종 확인 | 승인한15개 파일 구현·작성자/독립176/176·독립 QA 통과. 반려1회·두 지적 해결. 사용자 완료 승인·정상 하네스 DONE 확인. [결과](testing/m12-results.md). |
+| Phase 3 | M13 사용자 완료 승인·DONE 보존. M14 A 측정 도구·직접 큐 계측·독립 QA 완료, 사용자 완료 승인·정상 하네스 DONE 확인. 기본값은 유지했으며 조정은 후속 협의다. [M14 결과](testing/m14-results.md). |
+| M14 후속 선택 | 필요하면32접속 거절과 기본 설정 조정·DB gate 대기 및 워커/큐 조합(B)을 협의한다. 자동 튜닝·운영 용량 판정은 하지 않았다. 전체 구현 마감 뒤 시작 비용 진단 후보를 유지한다. |
 | 배포·이식 | 공개 저장소 게시·패키징·전체 재배포 고지·새 기기 이식은 별도 범위. 현재 캐시는 배포물이 아님. |
 
 전체 상세 설계를 지금 일괄 고정하지 않는다. M1 사용자가 승인한 범위는 반복 승인 없이 마감하되 새 범위·결정은 Master가 사용자와 상의한다.

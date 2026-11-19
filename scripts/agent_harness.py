@@ -220,6 +220,10 @@ class Harness:
     def slim(self):
         return self.state.get('workflow_policy') == 'slim-v1'
 
+    @property
+    def final_once(self):
+        return self.slim and self.state.get('regression_policy') == 'final-once-v1'
+
     def final_checks(self):
         return ('docs',) if self.kind == 'design' else ('regression',) if self.slim else ('build', 'regression')
 
@@ -341,6 +345,8 @@ class Harness:
                                            'source_digest', 'status', 'findings', 'evidence_refs', 'requested_decisions'])
             if self.slim:
                 packet.update(workflow_policy='slim-v1', red_policy=self.state['red_policy'])
+                if self.final_once:
+                    packet['regression_policy'] = 'final-once-v1'
             tasks = {'planner': 'Return plan with alternatives, test_cases, proposed_changes and unresolved user choices. Do not implement.',
                      'implementer': 'Implement approved files. Produce actual Red/Green/build/regression receipts; report only to Master.',
                      'reviewer_qa': 'Read-only code review plus fresh build then regression. Return separate review and qa fields. Do not edit source.',
@@ -351,6 +357,12 @@ class Harness:
                                   'Produce fresh integrated configure/build/full regression evidence; report only to Master.'
                                   if node == 'implementer' else
                                   'Read-only review plus fresh integrated configure/build/full regression. Return separate review and qa fields.')
+            if self.final_once and node in {'implementer', 'reviewer_qa'}:
+                packet['task'] = ('Implement approved files under red_policy. Finish with fresh targeted checks including configure/build; report only to Master.'
+                                  if node == 'implementer' else
+                                  'Read-only review and necessary targeted checks first. After all source edits finish, run fresh integrated configure/build/full regression once. Return separate review and qa fields.')
+                packet['task'] += ' Master only; no .private access, peer messaging or further delegation.'
+                packet['role_profile'] = dict(packet['role_profile'], instructions=packet['task'])
             if self.kind == 'design':
                 packet['role_profile'] = dict(packet['role_profile'], instructions=profiles['roles'][node].get('design_instructions', tasks[node]))
                 packet['task'] = {'planner': 'Return current Phase design alternatives, document checks and exact documentation outputs. Do not implement.',
@@ -539,6 +551,22 @@ class Harness:
         self.save('user_contract_approved', approval_ref=approval_ref)
         return self.state
 
+    def set_regression_policy(self, user_ref, regression_policy):
+        phase = self.state.get('phase')
+        environment_resume = (phase == 'NEEDS_DECISION' and self.state.get('resume_phase') == 'IMPLEMENT'
+                              and self.state.get('pause_category') == 'environment')
+        if (not self.slim or self.kind != 'implementation' or not (phase == 'IMPLEMENT' or environment_resume)
+                or self.state.get('active') or regression_policy != 'final-once-v1'
+                or not isinstance(user_ref, str) or not user_ref.strip()):
+            raise HarnessError('final-once policy requires explicit user reference and idle slim IMPLEMENT/environment resume')
+        if self.final_once:
+            raise HarnessError('final-once policy already selected')
+        self.check_inputs()
+        self.state.update(regression_policy=regression_policy,
+                          regression_policy_change=dict(user_ref=user_ref, regression_policy=regression_policy))
+        self.save('master_selected_regression_policy', **self.state['regression_policy_change'])
+        return self.state
+
     def amend_test_scope(self, approval_ref, contract_ref, reason, test_paths, required_tests, completion_ref=None):
         if not self.slim or self.state.get('phase') not in {'IMPLEMENT', 'VERIFY'}:
             raise HarnessError('test scope amendment requires actionable slim implementation')
@@ -638,8 +666,12 @@ class Harness:
             self.state['rejection_limit'] = self.state['rejection_count'] + 3
         self.state['baseline'] = snapshot(self.root)
         if replan or self.state['phase'] not in ({'KNOWLEDGE', 'VERIFY', 'USER_REVIEW'} if self.kind == 'design' else {'KNOWLEDGE', 'USER_REVIEW'}):
-            self.state['checks'] = {}
-            self.state.pop('red_confirmation', None)
+            if self.final_once and not replan and self.state['phase'] == 'IMPLEMENT' and self.state['pause_category'] == 'environment':
+                # 환경 재개에서 확인된 기능 Red를 보존하고 최종 영향 검사는 다시 수행한다.
+                self.state['checks'] = {key: value for key, value in self.state['checks'].items() if key == 'red'}
+            else:
+                self.state['checks'] = {}
+                self.state.pop('red_confirmation', None)
         elif self.state['phase'] == 'KNOWLEDGE':
             self.state['checks'].pop('finish', None)
         if self.kind == 'design' and self.state.get('approval_ref'):
@@ -669,8 +701,13 @@ class Harness:
             allowed = {'VERIFY': {'docs'}, 'KNOWLEDGE': {'finish'}}
         elif self.slim:
             allowed['IMPLEMENT'].add('targeted')
+            if self.final_once:
+                allowed['IMPLEMENT'].difference_update({'green', 'regression'})
+                allowed['VERIFY'].add('targeted')
         if not node or name not in allowed[phase]:
             raise HarnessError('check not allowed in this phase')
+        if self.final_once and name in {'red', 'targeted'} and not tests:
+            raise HarnessError('final-once red/targeted check requires exact selected tests')
         if tests is not None and (not self.slim or name not in {'targeted', 'red'} or not tests
                                   or not set(tests).issubset(self.state['required_tests'])):
             raise HarnessError('selected tests require approved exact targeted/red names')
@@ -807,11 +844,13 @@ class Harness:
                 raise HarnessError('command log modified')
         if value.get('report') and file_hash(safe_path(self.root, value['report'])) != value['report_hash']:
             raise HarnessError('test report modified')
-        if self.slim and name == 'regression':
+        if self.slim and (name == 'regression' or self.final_once and name == 'targeted'):
             report = read_json(safe_path(self.root, value['report']))
             validate_slim_metadata(report, self.run_id, value['actor_id'], value['source_digest'],
-                                   self.state['required_tests'], full=True, phase=value['phase'])
-            validate_report(report, self.state['required_tests'], self.run_id)
+                                   (value['requested_tests'] or self.state['required_tests']) if name == 'targeted' else self.state['required_tests'],
+                                   full=name == 'regression', phase=value['phase'])
+            validate_report(report, (value['requested_tests'] or self.state['required_tests'])
+                            if name == 'targeted' else self.state['required_tests'], self.run_id)
         return value
 
     def confirm_red(self, explanation, failed_tests):
@@ -834,7 +873,8 @@ class Harness:
             if self.state['red_confirmation'].get('receipt') != self.state['checks'].get('red'):
                 raise HarnessError('confirmed Red receipt changed')
             self.verify_check('red', phase='IMPLEMENT', actor_id=packet['actor_id'])
-        for name in (('regression',) if self.slim else ('green', 'regression', 'build')):
+        checks = ('targeted',) if self.final_once else ('regression',) if self.slim else ('green', 'regression', 'build')
+        for name in checks:
             self.verify_check(name, current=True, phase='IMPLEMENT', actor_id=packet['actor_id'])
         # 전이는 accept(implementer)에서만 한다. Master 직접 구현으로 단계를 우회하지 않는다.
 
@@ -865,6 +905,7 @@ def main():
     approve = commands.add_parser('approve'); approve.add_argument('--contract', required=True)
     check = commands.add_parser('run-check'); check.add_argument('name'); check.add_argument('--tests', nargs='+')
     amend = commands.add_parser('amend-test-scope'); amend.add_argument('--contract', required=True)
+    policy = commands.add_parser('set-regression-policy'); policy.add_argument('--contract', required=True)
     red = commands.add_parser('confirm-red'); red.add_argument('--explanation', required=True); red.add_argument('--tests', nargs='+', required=True)
     reject = commands.add_parser('reject'); reject.add_argument('node'); reject.add_argument('--reason', required=True); reject.add_argument('--evidence', nargs='+', required=True); reject.add_argument('--completion-ref', required=True)
     pause = commands.add_parser('pause'); pause.add_argument('--reason', required=True); pause.add_argument('--questions', required=True)
@@ -888,6 +929,7 @@ def main():
             elif args.action == 'approve': result = h.approve(**read_json(args.contract))
             elif args.action == 'run-check': result = h.run_check(args.name, args.tests)
             elif args.action == 'amend-test-scope': result = h.amend_test_scope(**read_json(args.contract))
+            elif args.action == 'set-regression-policy': result = h.set_regression_policy(**read_json(args.contract))
             elif args.action == 'confirm-red': result = h.confirm_red(args.explanation, args.tests)
             elif args.action == 'reject': result = h.reject(args.node, args.reason, args.evidence, args.completion_ref)
             elif args.action == 'pause': result = h.pause(args.reason, read_json(args.questions))

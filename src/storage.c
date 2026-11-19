@@ -261,6 +261,17 @@ static bool file_equals(const char *path, const unsigned char *expected, size_t 
     return ok;
 }
 
+static bool prepared_copy(unsigned char *target, const char *source, size_t length) {
+    for (size_t offset = 0; offset < length;) {
+        md_execution_point("serialize-text");
+        if (md_execution_check())
+            return false;
+        size_t take = length - offset > 4096 ? 4096 : length - offset;
+        memcpy(target + offset, source + offset, take);
+        offset += take;
+    }
+    return true;
+}
 static unsigned char *replacement_bytes(MdTable *t, MdValue *rows, size_t row_count,
                                         const unsigned char *original, size_t size, size_t *length) {
     if (size < 20)
@@ -270,6 +281,8 @@ static unsigned char *replacement_bytes(MdTable *t, MdValue *rows, size_t row_co
         return NULL;
     size_t header = 20 + (size_t)schema_size, total = header;
     for (size_t r = 0; r < row_count; r++) {
+        if (md_execution_check())
+            return NULL;
         size_t frame = t->count;
         for (size_t c = 0; c < t->count; c++) {
             MdValue *v = rows + r * t->count + c;
@@ -292,6 +305,10 @@ static unsigned char *replacement_bytes(MdTable *t, MdValue *rows, size_t row_co
     memcpy(bytes, original, header);
     size_t pos = header;
     for (size_t r = 0; r < row_count; r++) {
+        if (md_execution_check()) {
+            free(bytes);
+            return NULL;
+        }
         size_t frame = pos;
         pos += 8;
         for (size_t c = 0; c < t->count; c++) {
@@ -305,7 +322,10 @@ static unsigned char *replacement_bytes(MdTable *t, MdValue *rows, size_t row_co
             } else if (v->type == MD_TEXT) {
                 le_write(bytes + pos, v->as.text.len, 8);
                 pos += 8;
-                memcpy(bytes + pos, v->as.text.ptr, v->as.text.len);
+                if (!prepared_copy(bytes + pos, v->as.text.ptr, v->as.text.len)) {
+                    free(bytes);
+                    return NULL;
+                }
                 pos += v->as.text.len;
             }
         }
@@ -357,9 +377,12 @@ bool md_storage_replace(MdDb *db, MdTable *t, MdValue **rows, size_t row_count,
     bool replacing_index = !strcmp(command, "DELETE");
     if (replacing_index) {
         if (md_fault("index_delete_alloc")) goto resource;
-        for (size_t i = 0; i < row_count; i++)
+        for (size_t i = 0; i < row_count; i++) {
+            if (md_execution_check())
+                goto done;
             if (md_bt_insert(&replacement, (*rows)[i * t->count + t->id].as.integer, i) != MD_BT_OK)
                 goto resource;
+        }
     }
     if (!main || !pending)
         goto resource;
@@ -392,6 +415,11 @@ bool md_storage_replace(MdDb *db, MdTable *t, MdValue **rows, size_t row_count,
     e->result.kind = MD_STATEMENT_OK;
     strcpy(e->result.command, command);
     e->result.affected_rows = affected;
+    md_execution_point("before-marker");
+    if (md_execution_check())
+        goto done;
+    /* 여기부터 publication까지 취소를 유예하여 marker/행/index 정합성을 지킨다. */
+    md_execution_protect();
     if (!marker_write(pending, command, main, original_size, d)) {
         int state = file_state(wp);
         if (state < 0)
@@ -400,6 +428,7 @@ bool md_storage_replace(MdDb *db, MdTable *t, MdValue **rows, size_t row_count,
         goto before_replace;
     }
     marker = true;
+    md_execution_point("after-marker");
     HANDLE h = md_fault("replace_temp_create") ? INVALID_HANDLE_VALUE :
         CreateFileW(wt, GENERIC_WRITE, 0, NULL, CREATE_NEW, FILE_ATTRIBUTE_NORMAL, NULL);
     if (h == INVALID_HANDLE_VALUE) {
@@ -420,6 +449,7 @@ bool md_storage_replace(MdDb *db, MdTable *t, MdValue **rows, size_t row_count,
             goto unresolved;
         goto before_replace;
     }
+    md_execution_point("before-replace");
     if (!replace_files(wm, wt, wb)) {
         DWORD error = GetLastError();
         if (md_fault("replace_state") || md_fault("replace_content"))
@@ -443,6 +473,7 @@ bool md_storage_replace(MdDb *db, MdTable *t, MdValue **rows, size_t row_count,
         goto before_replace;
     }
     committed = true;
+    md_execution_point("after-replace");
     temporary = false;
     /* 성공 반환이 반영 경계다. 할당 없이 staged 소유권을 단 한 번 live table로 옮긴다. */
     md_values_free(t->rows, t->row_count * t->count);
@@ -512,6 +543,8 @@ bool md_storage_insert(MdDb *db, MdTable *t, MdValue *rows, size_t row_count, Md
         goto resource;
     /* 각 레코드 프레임은 유지하고 문장 전체 바이트를 변경 전에 준비한다. */
     for (size_t row = 0; row < row_count; row++) {
+        if (md_execution_check())
+            goto resource;
         size_t len = t->count;
         for (size_t i = 0; i < t->count; i++) {
             MdValue *value = &rows[row * t->count + i];
@@ -531,6 +564,10 @@ bool md_storage_insert(MdDb *db, MdTable *t, MdValue *rows, size_t row_count, Md
         goto resource;
     size_t pos = 0;
     for (size_t row = 0; row < row_count; row++) {
+        if (md_execution_check()) {
+            free(bytes);
+            goto resource;
+        }
         size_t frame = pos;
         pos += 8;
         for (size_t i = 0; i < t->count; i++) {
@@ -544,7 +581,10 @@ bool md_storage_insert(MdDb *db, MdTable *t, MdValue *rows, size_t row_count, Md
             } else if (value->type == MD_TEXT) {
                 le_write(bytes + pos, value->as.text.len, 8);
                 pos += 8;
-                memcpy(bytes + pos, value->as.text.ptr, value->as.text.len);
+                if (!prepared_copy(bytes + pos, value->as.text.ptr, value->as.text.len)) {
+                    free(bytes);
+                    goto resource;
+                }
                 pos += value->as.text.len;
             }
         }
@@ -579,10 +619,17 @@ bool md_storage_insert(MdDb *db, MdTable *t, MdValue *rows, size_t row_count, Md
         d->committed = MD_NO;
         goto early;
     }
+    md_execution_point("before-marker");
+    if (md_execution_check()) {
+        CloseHandle(h);
+        goto early;
+    }
+    md_execution_protect();
     if (!marker_write(pending, "INSERT", path, (uint64_t)original.QuadPart, d)) {
         CloseHandle(h);
         goto early;
     }
+    md_execution_point("after-marker");
     /* 성공 결과는 고정 크기이며 append 전 확정 건수까지 준비되어 있다. */
     e->result.kind = MD_STATEMENT_OK;
     strcpy(e->result.command, "INSERT");
@@ -591,8 +638,11 @@ bool md_storage_insert(MdDb *db, MdTable *t, MdValue *rows, size_t row_count, Md
     if (ok && (md_fault("append_write") || md_fault("rollback"))) {
         (void)md_write_all(h, bytes, total / 2);
         ok = false;
-    } else if (ok)
+    } else if (ok) {
+        md_execution_point("before-flush");
         ok = md_write_all(h, bytes, total) && FlushFileBuffers(h);
+        md_execution_point("after-flush");
+    }
     if (!ok) {
         bool restored = !md_fault("rollback") && SetFilePointerEx(h, original, NULL, FILE_BEGIN) &&
                         SetEndOfFile(h) && FlushFileBuffers(h);

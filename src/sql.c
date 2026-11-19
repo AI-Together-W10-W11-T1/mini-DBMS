@@ -28,18 +28,30 @@ static void next(Lexer *l) {
     l->text_len = 0;
     l->kind = TK_END;
     l->comparison = CMP_NONE;
+    md_execution_point("lexer");
+    const char *cancel = md_execution_check();
+    if (cancel) {
+        l->kind = TK_BAD;
+        l->error = cancel;
+        return;
+    }
     for (;;) {
-        while (l->pos < l->len && space(l->raw[l->pos]))
+        if (md_execution_check()) {
+            l->kind = TK_BAD;
+            l->error = md_execution_check();
+            return;
+        }
+        while (!md_execution_check() && l->pos < l->len && space(l->raw[l->pos]))
             l->pos++;
         if (l->pos + 1 < l->len && l->raw[l->pos] == '-' && l->raw[l->pos + 1] == '-') {
             l->pos += 2;
-            while (l->pos < l->len && l->raw[l->pos] != '\r' && l->raw[l->pos] != '\n')
+            while (!md_execution_check() && l->pos < l->len && l->raw[l->pos] != '\r' && l->raw[l->pos] != '\n')
                 l->pos++;
             continue;
         }
         if (l->pos + 1 < l->len && l->raw[l->pos] == '/' && l->raw[l->pos + 1] == '*') {
             l->pos += 2;
-            while (l->pos + 1 < l->len && !(l->raw[l->pos] == '*' && l->raw[l->pos + 1] == '/'))
+            while (!md_execution_check() && l->pos + 1 < l->len && !(l->raw[l->pos] == '*' && l->raw[l->pos + 1] == '/'))
                 l->pos++;
             if (l->pos + 1 >= l->len) {
                 l->kind = TK_BAD;
@@ -56,13 +68,13 @@ static void next(Lexer *l) {
         return;
     unsigned c = l->raw[l->pos++];
     if (alpha(c)) {
-        while (l->pos < l->len && (alpha(l->raw[l->pos]) || digit(l->raw[l->pos])))
+        while (!md_execution_check() && l->pos < l->len && (alpha(l->raw[l->pos]) || digit(l->raw[l->pos])))
             l->pos++;
         l->kind = TK_WORD;
         l->text_len = l->pos - l->start;
         l->text = md_copy((char *)l->raw + l->start, l->text_len);
     } else if (digit(c)) {
-        while (l->pos < l->len && digit(l->raw[l->pos]))
+        while (!md_execution_check() && l->pos < l->len && digit(l->raw[l->pos]))
             l->pos++;
         l->kind = TK_NUMBER;
         l->text_len = l->pos - l->start;
@@ -76,7 +88,7 @@ static void next(Lexer *l) {
         }
         size_t n = 0;
         bool closed = false;
-        while (l->pos < l->len) {
+        while (!md_execution_check() && l->pos < l->len) {
             c = l->raw[l->pos++];
             if (c == '\'') {
                 if (l->pos < l->len && l->raw[l->pos] == '\'') {
@@ -259,9 +271,34 @@ static const char *literal_rows(Lexer *l, LiteralRows *rows) {
     return NULL;
 }
 
-static int compare_ids(const void *a, const void *b) {
-    int64_t left = *(const int64_t *)a, right = *(const int64_t *)b;
-    return (left > right) - (left < right);
+static const char *sort_ids(int64_t *ids, size_t count) {
+    /* INSERT 중복 검사도 취소 가능한 제자리 힙 정렬을 쓴다. */
+    for (size_t start = count / 2, end = count; end > 1;) {
+        size_t root;
+        if (start)
+            root = --start;
+        else {
+            int64_t value = ids[--end];
+            ids[end] = ids[0];
+            ids[0] = value;
+            root = 0;
+        }
+        while (root < end / 2) {
+            const char *cancel = md_execution_check();
+            if (cancel)
+                return cancel;
+            size_t child = root * 2 + 1;
+            if (child + 1 < end && ids[child] < ids[child + 1])
+                child++;
+            if (ids[root] >= ids[child])
+                break;
+            int64_t value = ids[root];
+            ids[root] = ids[child];
+            ids[child] = value;
+            root = child;
+        }
+    }
+    return NULL;
 }
 
 static const char *insert(MdRequest *r, Lexer *l, MdEvent *e) {
@@ -349,6 +386,9 @@ static const char *insert(MdRequest *r, Lexer *l, MdEvent *e) {
     }
     /* 문장 전체의 타입·ID를 검사한 뒤에만 저장 함수를 호출한다. */
     for (size_t row = 0; row < rows.row_count; row++) {
+        md_execution_point("staging");
+        if ((error = md_execution_check()))
+            goto done;
         MdValue *values = mapped + row * t->count;
         for (size_t j = 0; j < n; j++) {
             MdValue *value = &rows.values[row * n + j];
@@ -369,7 +409,9 @@ static const char *insert(MdRequest *r, Lexer *l, MdEvent *e) {
         if (md_bt_get(&t->index, id, &existing)) { error = "DUPLICATE_ID"; goto done; }
         ids[row] = id;
     }
-    qsort(ids, rows.row_count, sizeof *ids, compare_ids);
+    error = sort_ids(ids, rows.row_count);
+    if (error)
+        goto done;
     for (size_t i = 1; i < rows.row_count; i++)
         if (ids[i - 1] == ids[i]) { error = "DUPLICATE_ID"; goto done; }
     if (!md_storage_insert(r->db, t, mapped, rows.row_count, e))
@@ -533,7 +575,7 @@ typedef struct {
 } Predicate;
 
 #ifdef MINIDB_TEST_FAULTS
-static size_t index_lookups, scan_rows;
+static thread_local size_t index_lookups, scan_rows;
 void md_test_index_reset(void) { index_lookups = scan_rows = 0; }
 size_t md_test_index_lookups(void) { return index_lookups; }
 size_t md_test_scan_rows(void) { return scan_rows; }
@@ -748,9 +790,16 @@ static int compare_values(const MdValue *a, const MdValue *b) {
     if (a->type == MD_INT64)
         return (a->as.integer > b->as.integer) - (a->as.integer < b->as.integer);
     size_t n = a->as.text.len < b->as.text.len ? a->as.text.len : b->as.text.len;
-    int compared = memcmp(a->as.text.ptr, b->as.text.ptr, n);
-    if (compared)
-        return compared;
+    for (size_t offset = 0; offset < n;) {
+        md_execution_point("text-compare");
+        if (md_execution_check())
+            return 0;
+        size_t length = n - offset > 4096 ? 4096 : n - offset;
+        int compared = memcmp(a->as.text.ptr + offset, b->as.text.ptr + offset, length);
+        if (compared)
+            return compared;
+        offset += length;
+    }
     return (a->as.text.len > b->as.text.len) - (a->as.text.len < b->as.text.len);
 }
 
@@ -758,6 +807,8 @@ static bool predicate_matches(Predicate *p, MdValue *row, int *stack) {
     size_t count = 0;
     for (size_t i = 0; i < p->count; i++) {
         PredicateNode *node = &p->nodes[i];
+        if (md_execution_check())
+            return false;
         if (node->kind == P_AND || node->kind == P_OR) {
             int right = stack[--count], left = stack[--count];
             int answer;
@@ -918,6 +969,8 @@ static const char *set_expression(Lexer *l, MdTable *t, Assignment *a) {
         }
         size_t used = 0;
         for (size_t i = 0; i < a->count; i++) {
+            if ((error = md_execution_check()))
+                break;
             SetNode *node = &a->nodes[i];
             if (!node->op)
                 types[used++] = node->scalar.type;
@@ -945,6 +998,9 @@ done:
 static const char *set_evaluate(Assignment *a, MdValue *row, MdValue *stack, MdValue *out) {
     size_t used = 0;
     for (size_t i = 0; i < a->count; i++) {
+        const char *cancel = md_execution_check();
+        if (cancel)
+            return cancel;
         SetNode *node = &a->nodes[i];
         if (!node->op) {
             stack[used++] = *scalar_value(&node->scalar, row);
@@ -1067,6 +1123,9 @@ static const char *mutate(MdRequest *r, Lexer *l, MdEvent *e, bool update) {
     }
     /* 기존 행과 staging은 별도 소유다. 모든 우변은 복사/수정 전의 old row를 본다. */
     for (size_t i = 0; i < t->row_count; i++) {
+        md_execution_point("staging");
+        if ((error = md_execution_check()))
+            goto done;
         MdValue *old = t->rows + i * t->count;
         bool match = predicate_matches(&p, old, predicate_stack);
         if (match)
@@ -1266,6 +1325,9 @@ static void swap_rows(MdResult *result, size_t a, size_t b) {
 
 static void sift_rows(MdResult *result, const QueryTail *tail, size_t root, size_t count) {
     while (root < count / 2) {
+        md_execution_point("sort");
+        if (md_execution_check())
+            return;
         size_t child = root * 2 + 1;
         if (child + 1 < count && compare_rows(result, tail, child, child + 1) < 0)
             child++;
@@ -1279,9 +1341,11 @@ static void sift_rows(MdResult *result, const QueryTail *tail, size_t root, size
 static void apply_query_tail(MdResult *result, const QueryTail *tail) {
     /* 요청별 힙 정렬: 전역 comparator 문맥·추가 행 복사·재귀가 없다. */
     if (tail->count && result->row_count > 1) {
-        for (size_t root = result->row_count / 2; root > 0;)
+        for (size_t root = result->row_count / 2; root > 0 && !md_execution_check();)
             sift_rows(result, tail, --root, result->row_count);
         for (size_t count = result->row_count; count > 1;) {
+            if (md_execution_check())
+                return;
             swap_rows(result, 0, --count);
             sift_rows(result, tail, 0, count);
         }
@@ -1294,13 +1358,24 @@ static void apply_query_tail(MdResult *result, const QueryTail *tail) {
     for (size_t row = 0; row < result->row_count; row++)
         if (row < start || row - start >= kept)
             for (size_t col = 0; col < result->column_count; col++) {
+                if (md_execution_check())
+                    return;
                 MdValue *value = result->values + row * result->column_count + col;
                 if (value->type == MD_TEXT)
                     free(value->as.text.ptr);
+                /* 취소 시 원래 row_count로 정리하므로 해제한 셀의 소유권을 비운다. */
+                *value = (MdValue){0};
+                md_execution_point("page-release");
             }
     if (kept && start)
-        memmove(result->values, result->values + start * result->column_count,
-                kept * result->column_count * sizeof *result->values);
+        for (size_t cell = 0; cell < kept * result->column_count; cell++) {
+            if (md_execution_check())
+                return;
+            MdValue *source = result->values + start * result->column_count + cell;
+            result->values[cell] = *source;
+            *source = (MdValue){0};
+            md_execution_point("page-move");
+        }
     result->row_count = kept;
 }
 
@@ -1396,9 +1471,15 @@ static const char *aggregate_new_group(Aggregate *a, MdValue *row, size_t *index
 static const char *aggregate_row(Aggregate *a, MdValue *row) {
     size_t index;
     for (index = 0; index < a->group_count; index++) {
+        md_execution_point("group");
+        const char *cancel = md_execution_check();
+        if (cancel)
+            return cancel;
         MdValue *group = a->groups + index * a->width;
         size_t key;
         for (key = 0; key < a->key_count; key++) {
+            if (md_execution_check())
+                return md_execution_check();
             const MdValue *left = group + key, *right = row + a->keys[key];
             if (left->type != right->type || (left->type != MD_NULL && compare_values(left, right)))
                 break;
@@ -1421,6 +1502,9 @@ static const char *aggregate_row(Aggregate *a, MdValue *row) {
 
 static const char *project_row(MdResult *result, SelectItem *items, size_t count,
                                MdValue *row, bool aggregate, bool joined) {
+    md_execution_point("projection");
+    if (md_execution_check())
+        return md_execution_check();
     size_t rows = result->row_count, bytes;
     if (!result_size(rows, count, &bytes) || (joined && !aggregate && md_fault("join_row")))
         return "RESOURCE_ERROR";
@@ -1716,6 +1800,9 @@ static const char *select_query(MdRequest *r, Lexer *l, MdEvent *e) {
         end = found ? first + 1 : 0;
     }
     for (size_t i = first; i < end; i++) {
+        md_execution_point("scan");
+        if ((error = md_execution_check()))
+            goto done;
 #ifdef MINIDB_TEST_FAULTS
         scan_rows++;
 #endif
@@ -1724,6 +1811,9 @@ static const char *select_query(MdRequest *r, Lexer *l, MdEvent *e) {
             memcpy(scratch, row, left->count * sizeof *scratch);
         size_t right_count = right ? right->row_count : 1;
         for (size_t j = 0; j < right_count; j++) {
+            md_execution_point("join");
+            if ((error = md_execution_check()))
+                goto done;
             if (scratch) {
                 memcpy(scratch + left->count, right->rows + j * right->count,
                        right->count * sizeof *scratch);
@@ -1748,6 +1838,8 @@ static const char *select_query(MdRequest *r, Lexer *l, MdEvent *e) {
                 goto done;
         }
         for (size_t g = 0; g < aggregate.group_count; g++) {
+            if ((error = md_execution_check()))
+                goto done;
             MdValue *row = aggregate.groups + g * aggregate.width;
             if (having.count && !predicate_matches(&having, row, stack))
                 continue;
@@ -1797,6 +1889,8 @@ static const char *values_query(Lexer *l, MdEvent *e, bool validate_only) {
             goto done;
         }
         for (size_t row = 0; row < rows.row_count; row++) {
+            if ((error = md_execution_check()))
+                goto done;
             MdType type = rows.values[row * rows.column_count + column].type;
             if (type == MD_NULL)
                 continue;
@@ -1834,6 +1928,9 @@ bool md_test_union_size(size_t left, size_t right, size_t width, size_t *bytes) 
 #endif
 
 static const char *union_merge(MdResult *left, MdResult *right, bool all, bool validate_only) {
+    md_execution_point("union");
+    if (md_execution_check())
+        return md_execution_check();
     if (left->column_count != right->column_count)
         return "COLUMN_COUNT_MISMATCH";
     for (size_t i = 0; i < left->column_count; i++) {
@@ -1876,8 +1973,16 @@ static const char *union_merge(MdResult *left, MdResult *right, bool all, bool v
     for (size_t i = 0; i < full.count; i++)
         full.keys[i].column = i;
     apply_query_tail(left, &full);
+    if (md_execution_check()) {
+        free(full.keys);
+        return md_execution_check();
+    }
     size_t kept = 0;
     for (size_t row = 0; row < left->row_count; row++) {
+        if (md_execution_check()) {
+            free(full.keys);
+            return md_execution_check();
+        }
         if (kept && !compare_rows(left, &full, kept - 1, row)) {
             for (size_t col = 0; col < left->column_count; col++) {
                 MdValue *value = left->values + row * left->column_count + col;
@@ -1949,6 +2054,8 @@ static const char *query(MdRequest *r, Lexer *l, MdEvent *event) {
 }
 
 static int read_byte(MdRequest *r) {
+    if (md_execution_check())
+        return -1;
     if (r->cursor == r->used) {
         if (r->eof || r->input_error)
             return -1;
@@ -2038,6 +2145,8 @@ MdNext md_sql_next(MdRequest *r, MdEvent *e) {
             previous = c;
         }
         const char *error = NULL;
+        if (r->cancel_code)
+            error = r->cancel_code;
         if (!raw && n == capacity && !r->eof && !r->input_error)
             error = "RESOURCE_ERROR";
         size_t bom = 0;
@@ -2073,6 +2182,22 @@ MdNext md_sql_next(MdRequest *r, MdEvent *e) {
             error = l.kind == TK_BAD ? l.error : "LEXICAL_ERROR";
         if (!error && !terminated)
             error = "SYNTAX_ERROR";
+        bool gate = false;
+        bool write = dml != NULL;
+        if (!error) {
+            gate = md_gate_enter(r, write);
+            if (!gate)
+                error = r->cancel_code;
+            else if (r->db->health != MD_HEALTHY) {
+                error = "RECOVERY_REQUIRED";
+                e->health = r->db->health;
+            } else {
+                r->sql_start = md_execution_now();
+                r->sql_running = true;
+                md_execution_point(write ? "gate-write" : "gate-read");
+                error = md_execution_check();
+            }
+        }
         if (!error) {
             if (word(&l, "INSERT"))
                 error = insert(r, &l, e);
@@ -2084,6 +2209,26 @@ MdNext md_sql_next(MdRequest *r, MdEvent *e) {
                 error = query(r, &l, e);
             else
                 error = "UNSUPPORTED_FEATURE";
+        }
+        if (!r->protected_commit && md_execution_check()) {
+            error = r->cancel_code;
+            md_event_destroy(e);
+        }
+        if (r->protected_commit) {
+            r->protected_commit = false;
+            /* 반영 뒤 취소는 확정 성공과 기존 cleanup/recovery 진단을 보존한다. */
+            if (md_execution_check()) {
+                e->stop = true;
+                if (e->has_result && !e->has_diagnostic) {
+                    md_diag(&e->diagnostic, r->cancel_code, "execute", NULL, NULL,
+                            "Committed statement completed before cancellation");
+                    e->diagnostic.committed = MD_YES;
+                    e->diagnostic.has_affected_rows = true;
+                    e->diagnostic.affected_rows = e->result.affected_rows;
+                    snprintf(e->diagnostic.command, sizeof e->diagnostic.command, "%s", e->result.command);
+                    e->has_diagnostic = true;
+                }
+            }
         }
         if (error) {
             char code[40];
@@ -2131,6 +2276,10 @@ MdNext md_sql_next(MdRequest *r, MdEvent *e) {
         }
         free(l.text);
         free(raw);
+        if (gate) {
+            e->health = r->db->health;
+            md_gate_leave(r->db, write);
+        }
         if (e->stop)
             r->stopped = true;
         return e->has_result ? MD_NEXT_RESULT : MD_NEXT_STOP;

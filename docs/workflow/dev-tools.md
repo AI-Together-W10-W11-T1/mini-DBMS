@@ -30,3 +30,5 @@ EXE SHA-256: ede70a7ae605525670d6862d54dbdacbeed383e4a8d81cbcdd0b33b6ef530732
 Graphify 의존성은 `tools/graphify-requirements.txt`에 고정한다. tree-sitter-typescript는 Graphify의 구문 분석 라이브러리이며 TypeScript 컴파일러나 Node 런타임 설치가 아니다.
 
 측정: `python scripts/eval_dev_tools.py --rtk .cache/tooling/rtk/1.2.0/rtk.exe`. 출력 bytes/4를 실제 전체 세션 토큰·금액 절감으로 보고하지 않는다. 설치·실행·검사 상태는 `docs/setup-status.md`와 실제 status 결과를 확인한다.
+
+final-once-v1의 IMPLEMENT는 build·red·targeted를 허용하고 red·targeted에 정확한 선택 이름을 요구한다. 작성자는 실제 configure/build를 포함한 최신 targeted로 인수한다. 독립 Reviewer_QA가 검토와 필요한 선택 검사 이후 최종 구현에서 전체 regression을 한 번 수행한다. 실패나 후속 수정에 필요한 재검사는 허용한다. 정상 정책 전환은 [하네스](agent-harness.md#최종-구현-이후-전체-회귀)를 따른다.

@@ -4,12 +4,134 @@
 #include <stdlib.h>
 #include <string.h>
 
+/* 실행 문맥은 호출 스레드에만 속하고 next_ex 반환 전에 해제한다. */
+static thread_local MdRequest *execution_request;
+#ifdef MINIDB_TEST_FAULTS
+static thread_local MdTestExecutionHook execution_hook;
+static thread_local void *execution_hook_context;
+static thread_local uint64_t (*execution_clock)(void *);
+static thread_local void *execution_clock_context;
+void md_test_execution_hook(MdTestExecutionHook hook, void *context) {
+    execution_hook = hook;
+    execution_hook_context = context;
+}
+void md_test_execution_clock(uint64_t (*clock)(void *), void *context) {
+    execution_clock = clock;
+    execution_clock_context = context;
+}
+#endif
+uint64_t md_execution_now(void) {
+#ifdef MINIDB_TEST_FAULTS
+    if (execution_clock)
+        return execution_clock(execution_clock_context);
+#endif
+    return GetTickCount64();
+}
+void md_execution_point(const char *point) {
+#ifdef MINIDB_TEST_FAULTS
+    if (execution_hook)
+        execution_hook(point, execution_hook_context);
+#else
+    (void)point;
+#endif
+}
+static const char *request_check(MdRequest *request) {
+    if (request->protected_commit)
+        return NULL;
+    if (request->cancel_code)
+        return request->cancel_code;
+    MdCancelReason reason = request->execution.cancel ?
+        request->execution.cancel(request->execution.context) : MD_CANCEL_NONE;
+    if (reason != MD_CANCEL_NONE) {
+        request->cancel_code = "SERVER_STOPPING";
+        request->cancel_stage = "shutdown";
+    } else if (request->sql_running && request->execution.sql_timeout_ms &&
+               md_execution_now() - request->sql_start >= request->execution.sql_timeout_ms) {
+        request->cancel_code = "TIMEOUT";
+        request->cancel_stage = "sql";
+    }
+    return request->cancel_code;
+}
+const char *md_execution_check(void) {
+    return execution_request ? request_check(execution_request) : NULL;
+}
+void md_execution_protect(void) {
+    if (execution_request)
+        execution_request->protected_commit = true;
+}
+bool md_gate_enter(MdRequest *request, bool write) {
+    MdDb *db = request->db;
+    AcquireSRWLockExclusive(&db->gate);
+    if (write)
+        db->waiting_writers++;
+    bool entered = false;
+    for (;;) {
+        if (request_check(request))
+            break;
+        if (!db->writer && !db->readers && write) {
+            db->writer = true;
+            entered = true;
+            break;
+        }
+        if (!write && !db->writer && !db->waiting_writers) {
+            db->readers++;
+            entered = true;
+            break;
+        }
+        uint64_t budget = request->execution.lock_timeout_ms;
+        if (budget && request->lock_wait_ms >= budget) {
+            request->cancel_code = "TIMEOUT";
+            request->cancel_stage = "lock";
+            break;
+        }
+        DWORD interval = 10;
+        if (budget && budget - request->lock_wait_ms < interval)
+            interval = (DWORD)(budget - request->lock_wait_ms);
+        uint64_t start = md_execution_now();
+        md_execution_point("gate-wait");
+        SleepConditionVariableSRW(&db->changed, &db->gate, interval, 0);
+        md_execution_point("gate-waited");
+        uint64_t elapsed = md_execution_now() - start;
+        request->lock_wait_ms = elapsed > UINT64_MAX - request->lock_wait_ms ?
+            UINT64_MAX : request->lock_wait_ms + elapsed;
+        /* 재취득 시점에도 동일 누적 예산을 적용한다. */
+        if (budget && request->lock_wait_ms >= budget) {
+            request->cancel_code = "TIMEOUT";
+            request->cancel_stage = "lock";
+            break;
+        }
+    }
+    if (write) {
+        db->waiting_writers--;
+        WakeAllConditionVariable(&db->changed);
+    }
+    ReleaseSRWLockExclusive(&db->gate);
+    return entered;
+}
+void md_gate_leave(MdDb *db, bool write) {
+    AcquireSRWLockExclusive(&db->gate);
+    if (write)
+        db->writer = false;
+    else
+        db->readers--;
+    WakeAllConditionVariable(&db->changed);
+    ReleaseSRWLockExclusive(&db->gate);
+}
+
 char *md_copy(const char *s, size_t n) {
     if (n == SIZE_MAX)
         return NULL;
     char *p = malloc(n + 1);
     if (p) {
-        memcpy(p, s, n);
+        for (size_t offset = 0; offset < n;) {
+            if (md_execution_check()) {
+                free(p);
+                return NULL;
+            }
+            size_t length = n - offset > 4096 ? 4096 : n - offset;
+            memcpy(p + offset, s + offset, length);
+            offset += length;
+        }
         p[n] = 0;
     }
     return p;
@@ -40,6 +162,8 @@ void md_diag(MdDiagnostic *d, const char *code, const char *phase, const char *s
 }
 bool md_utf8(const unsigned char *p, size_t n) {
     for (size_t i = 0; i < n;) {
+        if (md_execution_check())
+            return false;
         unsigned c = p[i++];
         if (c < 128)
             continue;
@@ -237,10 +361,21 @@ void md_close(MdDb *db) {
 }
 bool md_request_open(MdDb *db, MdInput input, MdRequest **out, MdDiagnostic *d) {
     *out = NULL;
-    if (!db || !input.read || db->health != MD_HEALTHY) {
+    bool healthy = false;
+    if (db) {
+        MdRequest health = {.db = db};
+        md_gate_enter(&health, false);
+        healthy = db->health == MD_HEALTHY;
+        md_gate_leave(db, false);
+    }
+    if (!db || !input.read || !healthy) {
         md_diag(d, "RECOVERY_REQUIRED", "execute", NULL, NULL, "DB is stopped or input invalid");
         return false;
     }
+    return md_request_create(db, input, out, d);
+}
+bool md_request_create(MdDb *db, MdInput input, MdRequest **out, MdDiagnostic *d) {
+    *out = NULL;
     MdRequest *r = calloc(1, sizeof *r);
     if (!r) {
         md_diag(d, "RESOURCE_ERROR", "execute", NULL, NULL, "Request allocation failed");
@@ -253,10 +388,43 @@ bool md_request_open(MdDb *db, MdInput input, MdRequest **out, MdDiagnostic *d) 
     return true;
 }
 MdNext md_request_next(MdRequest *r, MdEvent *e) {
+    return md_request_next_ex(r, NULL, e);
+}
+MdNext md_request_next_ex(MdRequest *r, const MdExecutionOptions *options, MdEvent *e) {
     memset(e, 0, sizeof *e);
     if (!r || r->stopped)
         return MD_NEXT_EOF;
-    return md_sql_next(r, e);
+    r->execution = options ? *options : (MdExecutionOptions){0};
+    r->lock_wait_ms = 0;
+    r->sql_running = r->protected_commit = false;
+    r->cancel_code = r->cancel_stage = NULL;
+    execution_request = r;
+    MdNext next = MD_NEXT_STOP;
+    if (r->execution.lock_timeout_ms > INT64_MAX || r->execution.sql_timeout_ms > INT64_MAX) {
+        md_diag(&e->diagnostic, "ARGUMENT_ERROR", "arguments", NULL, NULL, "Execution interval out of range");
+        e->has_diagnostic = e->stop = r->stopped = true;
+        goto done;
+    }
+    if (!md_gate_enter(r, false))
+        goto cancelled;
+    /* 열린 요청도 다른 요청의 저장 실패 이후에는 입력을 읽거나 SQL을 시작하지 않는다. */
+    if (r->db->health != MD_HEALTHY) {
+        e->has_diagnostic = e->stop = r->stopped = true;
+        e->health = r->db->health;
+        md_diag(&e->diagnostic, "RECOVERY_REQUIRED", "execute", NULL, NULL, "DB is stopped");
+        md_gate_leave(r->db, false);
+        goto done;
+    }
+    md_gate_leave(r->db, false);
+    next = md_sql_next(r, e);
+    goto done;
+cancelled:
+    md_diag(&e->diagnostic, r->cancel_code, "execute", NULL, NULL, "Execution cancelled");
+    e->has_diagnostic = e->stop = r->stopped = true;
+done:
+    execution_request = NULL;
+    r->execution = (MdExecutionOptions){0};
+    return next;
 }
 void md_request_close(MdRequest *r) { free(r); }
 bool md_operate(const MdOperationOptions *o, MdEvent *e) {
@@ -304,21 +472,4 @@ done:
     md_close(target);
     md_close(source);
     return ok;
-}
-void md_event_destroy(MdEvent *e) {
-    if (!e)
-        return;
-    if (e->result.columns)
-        for (size_t i = 0; i < e->result.column_count; i++)
-            free(e->result.columns[i].name);
-    md_values_free(e->result.values, e->result.row_count * e->result.column_count);
-    if (e->result.tables)
-        for (size_t i = 0; i < e->result.table_count; i++) {
-            free(e->result.tables[i].name);
-            free(e->result.tables[i].action);
-        }
-    free(e->result.columns);
-    free(e->result.tables);
-    free(e->result.output_path);
-    memset(e, 0, sizeof *e);
 }
