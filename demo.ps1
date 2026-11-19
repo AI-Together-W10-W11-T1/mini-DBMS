@@ -20,14 +20,40 @@ function Write-JsonFile($Path, $Value) {
     [IO.File]::WriteAllText($Path, ($Value | ConvertTo-Json -Depth 8), $utf8)
 }
 
-function Invoke-Db($Executable, $Schema, $Data, $SqlPath, $LogPrefix, $Init) {
-    $arguments = if ($Init) {
+function Initialize-TimingHelper($Executable) {
+    $build = Split-Path -Parent $Executable
+    $helper = Join-Path $build 'demo_timing.exe'
+    $source = Join-Path $root 'tools/demo_timing.c'
+    if ((Test-Path -LiteralPath $helper -PathType Leaf) -and
+        (Get-Item -LiteralPath $helper).LastWriteTimeUtc -ge (Get-Item -LiteralPath $source).LastWriteTimeUtc) { return }
+    if (-not $build.StartsWith($root + [IO.Path]::DirectorySeparatorChar, [StringComparison]::OrdinalIgnoreCase) -or
+        -not (Test-Path -LiteralPath (Join-Path $build 'CMakeCache.txt'))) {
+        throw 'Build the demo_timing CMake target beside minidb.exe, then run setup again.'
+    }
+    $cmake = Join-Path $root '.cache/tooling/cmake/4.5.0/cmake-4.5.0-windows-x86_64/bin/cmake.exe'
+    $messages = @(& $cmake --build $build --target demo_timing --parallel 2 2>&1)
+    $code = $LASTEXITCODE
+    [IO.File]::WriteAllText((Join-Path $demo 'timing-build.log'), ($messages -join "`n"), $utf8)
+    if ($code -ne 0 -or -not (Test-Path -LiteralPath $helper)) {
+        throw 'Cannot build demo_timing. See .cache/presentation-demo/timing-build.log'
+    }
+}
+
+function Invoke-Db($Executable, $Schema, $Data, $SqlPath, $LogPrefix, $Init, $Measure = $false) {
+    $program = $Executable
+    $arguments = if ($Measure) {
+        $program = Join-Path (Split-Path -Parent $Executable) 'demo_timing.exe'
+        if (-not (Test-Path -LiteralPath $program -PathType Leaf)) {
+            throw 'SQL timing helper is missing. Run .\demo.ps1 setup again.'
+        }
+        @($Schema, $Data, $SqlPath)
+    } elseif ($Init) {
         @('init', '--schema-dir', $Schema, '--data-dir', $Data, '--format', 'jsonl')
     } else {
         @('run', '--schema-dir', $Schema, '--data-dir', $Data, '--file', $SqlPath, '--format', 'jsonl')
     }
     $watch = [Diagnostics.Stopwatch]::StartNew()
-    $lines = @(& $Executable @arguments 2> ($LogPrefix + '.stderr'))
+    $lines = @(& $program @arguments 2> ($LogPrefix + '.stderr'))
     $code = $LASTEXITCODE
     $watch.Stop()
     $raw = $lines -join "`n"
@@ -36,7 +62,16 @@ function Invoke-Db($Executable, $Schema, $Data, $SqlPath, $LogPrefix, $Init) {
         throw "DB exit=$code. See $LogPrefix.stderr"
     }
     $value = $raw | ConvertFrom-Json
-    return [pscustomobject]@{ Value = $value; Milliseconds = $watch.Elapsed.TotalMilliseconds }
+    if ($Measure) {
+        if ($value.frequency -le 0 -or $value.preparation_ticks -lt 0 -or $value.sql_ticks -lt 0 -or
+            [double]::IsNaN($value.preparation_ms) -or [double]::IsInfinity($value.preparation_ms) -or
+            [double]::IsNaN($value.sql_ms) -or [double]::IsInfinity($value.sql_ms) -or
+            $value.preparation_ms -lt 0 -or $value.sql_ms -lt 0) { throw 'Invalid DB timing.' }
+        return [pscustomobject]@{ Value = $value.event; Milliseconds = $value.sql_ms;
+            PreparationMilliseconds = $value.preparation_ms; ProcessMilliseconds = $watch.Elapsed.TotalMilliseconds }
+    }
+    return [pscustomobject]@{ Value = $value; Milliseconds = $watch.Elapsed.TotalMilliseconds;
+        PreparationMilliseconds = 0; ProcessMilliseconds = $watch.Elapsed.TotalMilliseconds }
 }
 
 function Write-Sql($Run, $Name, $Sql) {
@@ -62,7 +97,7 @@ function Assert-Query($Query, $ExpectedRows) {
 function Read-Pair($Run, $State, $Id, $Prefix) {
     $sql = "SELECT id,name,age FROM users WHERE id=$Id;"
     $sqlPath = Write-Sql $Run $Prefix $sql
-    $native = Invoke-Db $State.exe (Join-Path $Run 'schema') (Join-Path $Run 'data') $sqlPath (Join-Path $Run $Prefix) $false
+    $native = Invoke-Db $State.exe (Join-Path $Run 'schema') (Join-Path $Run 'data') $sqlPath (Join-Path $Run $Prefix) $false $true
     Assert-Query $native.Value 1
     $csv = Join-Path $Run 'users.csv'
     $watch = [Diagnostics.Stopwatch]::StartNew()
@@ -71,7 +106,8 @@ function Read-Pair($Run, $State, $Id, $Prefix) {
     if ($matches.Count -ne 1) { throw 'CSV must contain exactly one matching ID.' }
     $line = $native.Value.rows[0] -join ','
     if ($line -cne $matches[0].Line) { throw 'DB and CSV results differ.' }
-    return [pscustomobject]@{ Line = $line; DbMs = $native.Milliseconds; PsMs = $watch.Elapsed.TotalMilliseconds; Sql = $sql }
+    return [pscustomobject]@{ Line = $line; DbMs = $native.Milliseconds; DbPreparationMs = $native.PreparationMilliseconds;
+        DbProcessMs = $native.ProcessMilliseconds; PsMs = $watch.Elapsed.TotalMilliseconds; Sql = $sql }
 }
 
 try {
@@ -98,6 +134,7 @@ try {
         if (-not (Test-Path -LiteralPath $Exe -PathType Leaf)) {
             throw 'minidb.exe is missing. Build first, then use .\demo.ps1 setup -Exe <path>.'
         }
+        Initialize-TimingHelper $Exe
         $runId = [guid]::NewGuid().ToString('N')
         $run = Join-Path $runs $runId
         $schema = Join-Path $run 'schema'
@@ -162,7 +199,7 @@ try {
             $state.pending = $true
             Write-JsonFile $statePath $state
             $sqlPath = Write-Sql $run $tag $sql
-            $native = Invoke-Db $state.exe (Join-Path $run 'schema') (Join-Path $run 'data') $sqlPath (Join-Path $run $tag) $false
+            $native = Invoke-Db $state.exe (Join-Path $run 'schema') (Join-Path $run 'data') $sqlPath (Join-Path $run $tag) $false $true
             if ($native.Value.type -ne 'statement_ok' -or $native.Value.command -ne 'INSERT' -or
                 $native.Value.affected_rows -ne '1' -or $native.Value.committed -ne $true) {
                 throw 'INSERT was not confirmed.'
@@ -171,6 +208,8 @@ try {
             Add-Content -LiteralPath $csv -Value $line -Encoding UTF8
             $watch.Stop()
             $dbMs = $native.Milliseconds
+            $dbPreparationMs = $native.PreparationMilliseconds
+            $dbProcessMs = $native.ProcessMilliseconds
             $psMs = $watch.Elapsed.TotalMilliseconds
             $pair = Read-Pair $run $state $id ($tag + '-verify')
             if ($pair.Line -cne $line) { throw 'New automatic ID or values differ from the expected record.' }
@@ -186,14 +225,17 @@ try {
             $pair = Read-Pair $run $state $id $tag
             $line = $pair.Line
             $dbMs = $pair.DbMs
+            $dbPreparationMs = $pair.DbPreparationMs
+            $dbProcessMs = $pair.DbProcessMs
             $psMs = $pair.PsMs
         }
         $difference = $dbMs - $psMs
         $total.Stop()
-        Write-JsonFile (Join-Path $run ($tag + '-report.json')) @{ action = $Action; id = $id; row = $line; logical_rows = [long]$state.target; db_ms = $dbMs; powershell_ms = $psMs; db_minus_powershell_ms = $difference; total_ms = $total.Elapsed.TotalMilliseconds; valid = $true; db_timing = 'native CLI startup + full DB open/validation/index rebuild + SQL; result checks outside operation timer'; file_timing = 'current PowerShell host Add-Content or full-file Select-String; different validation/durability work' }
+        Write-JsonFile (Join-Path $run ($tag + '-report.json')) @{ action = $Action; id = $id; row = $line; logical_rows = [long]$state.target; db_ms = $dbMs; db_preparation_ms = $dbPreparationMs; db_process_ms = $dbProcessMs; powershell_ms = $psMs; db_minus_powershell_ms = $difference; total_ms = $total.Elapsed.TotalMilliseconds; valid = $true; db_timing = 'request open + SQL input/parsing/execution + EOF + request close, measured directly inside native helper'; db_preparation_timing = 'SQL file open + DB schema/data validation/loading + index construction; excluded from SQL comparison'; file_timing = 'current PowerShell host Add-Content or full-file Select-String; different validation/durability work' }
         Write-Host "MATCH: $line"
-        Write-Host ('DB {0:F3} ms | PowerShell {1:F3} ms | DB-PS {2:+0.000;-0.000;0.000} ms' -f $dbMs, $psMs, $difference)
-        Write-Host ('Wrapper work {0:F1} ms (before report/output) | CLI startup/open included; not an isolated index benchmark.' -f $total.Elapsed.TotalMilliseconds)
+        Write-Host ('DB preparation {0:F3} ms (file open / load / index; excluded below)' -f $dbPreparationMs)
+        Write-Host ('SQL {0:F3} ms | PowerShell {1:F3} ms | SQL-PS {2:+0.000;-0.000;0.000} ms' -f $dbMs, $psMs, $difference)
+        Write-Host ('DB process {0:F1} ms | Wrapper work {1:F1} ms (before report/output)' -f $dbProcessMs, $total.Elapsed.TotalMilliseconds)
     }
 } catch {
     Write-Error -Message $_.Exception.Message -ErrorAction Continue
